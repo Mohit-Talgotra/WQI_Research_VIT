@@ -1,0 +1,5 @@
+.env
+data_cleaning.ipynb
+
+**/data
+**/venv
