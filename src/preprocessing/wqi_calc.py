@@ -1,45 +1,41 @@
 import pandas as pd
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 standards = {
-    "Turbidity": {"Si": 5, "Vi": 0},
-    "pH": {"Si": 8.5, "Vi": 7},
-    "TDS": {"Si": 500, "Vi": 0},
-    "Total Alkalinity": {"Si": 200, "Vi": 0},
-    "Chloride": {"Si": 250, "Vi": 0},
-    "Fluoride": {"Si": 1.5, "Vi": 1},
-    "Nitrate": {"Si": 45, "Vi": 0},
-    "Sulphate": {"Si": 200, "Vi": 0},
-    "Total Hardness": {"Si": 200, "Vi": 0},
-    "Iron": {"Si": 0.3, "Vi": 0},
-    "Free Residual Chlorine": {"Si": 1.0, "Vi": 0.5}
+    "pH (NA)": {"Sn": 8.5, "Videal": 7},
+    "TDS (mg/l)": {"Sn": 500, "Videal": 0},
+    "Total Hardness (As CaCO3) (mg/l)": {"Sn": 200, "Videal": 0},
+    "Chloride (as Cl) (mg/l)": {"Sn": 250, "Videal": 0},
+    "Fluoride (as F) (mg/l)": {"Sn": 1.0, "Videal": 0},
+    "Total Alkalinity (as Calcium Carbonate) (mg/l)": {"Sn": 200, "Videal": 0},
+    "Sulphate (as SO4) (mg/l)": {"Sn": 200, "Videal": 0},
+    "Nitrate (as NO3) (mg/l)": {"Sn": 45, "Videal": 0}
 }
 
-df = pd.read_csv("water_data.csv")
+df = pd.read_csv(os.environ["CLEANED_DATA_FILE_PATH"])
 
-K = 1 / sum([1 / standards[p]["Si"] for p in standards])
-weights = {p: K / standards[p]["Si"] for p in standards}
+K = 1 / sum([1 / standards[p]["Sn"] for p in standards])
 
-def calc_qi(param, value):
-    Si = standards[param]["Si"]
-    Vi = standards[param]["Vi"]
-    try:
-        qi = ((value - Vi) / (Si - Vi)) * 100
-        if qi < 0: qi = 0
-    except ZeroDivisionError:
-        qi = 0
-    return min(qi, 100)
+weights = {p: K / standards[p]["Sn"] for p in standards}
+
+def calc_qn(param, Vn):
+    Sn = standards[param]["Sn"]
+    Videal = standards[param]["Videal"]
+    return ((Vn - Videal) / (Sn - Videal)) * 100
 
 def calc_wqi(row):
-    num = 0
-    den = 0
+    wqi_sum = 0
     for param in standards:
-        qi = calc_qi(param, row[param])
-        wi = weights[param]
-        num += qi * wi
-        den += wi
-    return num / den if den != 0 else 0
+        Vn = row[param]
+        qn = calc_qn(param, Vn)
+        wn = weights[param]
+        wqi_sum += qn * wn
+    return wqi_sum
 
 df["WQI"] = df.apply(calc_wqi, axis=1)
 
-df.to_csv("water_data_with_wqi.csv", index=False)
-print("WQI column added and saved to 'water_data_with_wqi.csv'")
+df.to_csv(os.environ["WQI_CALCULATED_DATA_FILE_PATH"], index=False)
+print("WQI calculated EXACTLY like Excel and saved.")
