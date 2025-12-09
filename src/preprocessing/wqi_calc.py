@@ -21,16 +21,18 @@ K = 1 / sum([1 / standards[p]["Sn"] for p in standards])
 
 weights = {p: K / standards[p]["Sn"] for p in standards}
 
-def calc_qn(param, Vn):
-    Sn = standards[param]["Sn"]
-    Videal = standards[param]["Videal"]
-    return ((Vn - Videal) / (Sn - Videal)) * 100
+def calc_qn(param, value, Sn, Videal):
+    # Special formula for pH
+    qn = ((value - Videal) / (Sn - Videal)) * 100
+    qn = min(qn, 300)
+
+    return max(qn, 0)
 
 def calc_wqi(row):
     wqi_sum = 0
     for param in standards:
         Vn = row[param]
-        qn = calc_qn(param, Vn)
+        qn = calc_qn(param, Vn, standards[param]["Sn"], standards[param]["Videal"])
         wn = weights[param]
         wqi_sum += qn * wn
     return wqi_sum

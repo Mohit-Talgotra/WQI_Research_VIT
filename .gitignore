@@ -4,3 +4,4 @@ data_cleaning.ipynb
 **/data
 **/venv
 **/__pycache__
+**/results
