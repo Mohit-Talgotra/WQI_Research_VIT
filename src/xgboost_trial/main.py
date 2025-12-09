@@ -8,6 +8,10 @@ from train import time_based_split, train_xgboost
 from evals import evaluate_model, plot_results
 from predict import predict_future
 import warnings
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 warnings.filterwarnings('ignore')
 
 def main(filepath):
@@ -55,7 +59,7 @@ def main(filepath):
     return model, df, feature_cols
 
 if __name__ == "__main__":
-    filepath = ""
+    filepath = os.environ["WQI_CALCULATED_DATA_FILE_PATH"]
     
     model, df, feature_cols = main(filepath)
     

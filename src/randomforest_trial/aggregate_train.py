@@ -9,17 +9,11 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.model_selection import LeaveOneGroupOut, RandomizedSearchCV
 import shap
-
-try:
-    import xgboost as xgb
-except Exception:
-    xgb = None
-try:
-    from catboost import CatBoostRegressor
-except Exception:
-    CatBoostRegressor = None
+import xgboost as xgb
+from catboost import CatBoostRegressor
 
 load_dotenv()
+
 file = os.environ.get("WQI_AGGREGATE_FILE_PATH")
 if not file:
     print("set WQI_AGGREGATE_FILE_PATH in .env")
