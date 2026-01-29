@@ -1,5 +1,6 @@
 pandas
-openyxl
+openpyxl
 scikit-learn
 matplotlib
 seaborn
+python-dotenv
