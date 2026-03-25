@@ -15,6 +15,9 @@ import shap
 import xgboost as xgb
 from catboost import CatBoostRegressor
 
+# Load environment
+load_dotenv()
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -26,8 +29,6 @@ logger = logging.getLogger(__name__)
 RESULTS_DIR = Path(os.environ["RESULTS_FILE_PATH"])
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Load environment
-load_dotenv()
 file = os.environ.get("WQI_AGGREGATE_FILE_PATH")
 if not file:
     logger.error("WQI_AGGREGATE_FILE_PATH not set in .env file")
@@ -215,6 +216,8 @@ def evaluate_model(estimator, X, y, groups, name):
     all_predictions = []
     all_actuals = []
     all_groups_test = []
+    all_years_test = []
+
     
     logger.info(f"\nEvaluating {name}...")
     
@@ -230,6 +233,7 @@ def evaluate_model(estimator, X, y, groups, name):
         # Fit and predict
         estimator.fit(X_train, y_train)
         y_pred = estimator.predict(X_test)
+        test_years = X.iloc[test_idx]["Year"].values
         
         # Calculate metrics
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -251,7 +255,9 @@ def evaluate_model(estimator, X, y, groups, name):
         # Store predictions for later analysis
         all_predictions.extend(y_pred)
         all_actuals.extend(y_test)
-        all_groups_test.extend([test_group] * len(y_test))
+        all_groups_test.extend(groups[test_idx])
+        all_years_test.extend(test_years)
+
     
     # Aggregate results
     fold_df = pd.DataFrame(fold_results)
@@ -271,7 +277,7 @@ def evaluate_model(estimator, X, y, groups, name):
     logger.info(f"  MAE:  {summary['mean_mae']:.3f} ± {summary['std_mae']:.3f}")
     logger.info(f"  R²:   {summary['mean_r2']:.3f} ± {summary['std_r2']:.3f}")
     
-    return summary, fold_df, all_predictions, all_actuals, all_groups_test
+    return summary, fold_df, all_predictions, all_actuals, all_groups_test, all_years_test
 
 
 # Model Training and Comparison
@@ -292,45 +298,45 @@ rf_model = RandomForestRegressor(
     random_state=RANDOM_STATE,
     n_jobs=-1
 )
-res_rf, fold_rf, pred_rf, actual_rf, groups_rf = evaluate_model(
-    rf_model, X, y, groups, "RandomForest_baseline"
+res_rf, fold_rf, pred_rf, actual_rf, groups_rf, years_rf = evaluate_model(
+    rf_model, X, y, groups, "RandomForest"
 )
 results.append(res_rf)
-fold_details["RandomForest_baseline"] = fold_rf
-prediction_details["RandomForest_baseline"] = (pred_rf, actual_rf, groups_rf)
+fold_details["RandomForest"] = fold_rf
+prediction_details["RandomForest"] = (pred_rf, actual_rf, groups_rf, years_rf)
 
 # 2. XGBoost Default (if available)
-if xgb is not None:
-    logger.info("\n2. Training XGBoost default...")
-    xgb_model = xgb.XGBRegressor(
-        objective="reg:squarederror",
-        random_state=RANDOM_STATE,
-        n_jobs=-1
-    )
-    res_xgb, fold_xgb, pred_xgb, actual_xgb, groups_xgb = evaluate_model(
-        xgb_model, X, y, groups, "XGBoost_default"
-    )
-    results.append(res_xgb)
-    fold_details["XGBoost_default"] = fold_xgb
-    prediction_details["XGBoost_default"] = (pred_xgb, actual_xgb, groups_xgb)
-else:
-    logger.warning("XGBoost not available - skipping")
+# if xgb is not None:
+#     logger.info("\n2. Training XGBoost default...")
+#     xgb_model = xgb.XGBRegressor(
+#         objective="reg:squarederror",
+#         random_state=RANDOM_STATE,
+#         n_jobs=-1
+#     )
+#     res_xgb, fold_xgb, pred_xgb, actual_xgb, groups_xgb = evaluate_model(
+#         xgb_model, X, y, groups, "XGBoost_default"
+#     )
+#     results.append(res_xgb)
+#     fold_details["XGBoost_default"] = fold_xgb
+#     prediction_details["XGBoost_default"] = (pred_xgb, actual_xgb, groups_xgb)
+# else:
+#     logger.warning("XGBoost not available - skipping")
 
 # 3. CatBoost Default (if available)
-if CatBoostRegressor is not None:
-    logger.info("\n3. Training CatBoost default...")
-    cb_model = CatBoostRegressor(
-        verbose=0,
-        random_state=RANDOM_STATE
-    )
-    res_cb, fold_cb, pred_cb, actual_cb, groups_cb = evaluate_model(
-        cb_model, X, y, groups, "CatBoost_default"
-    )
-    results.append(res_cb)
-    fold_details["CatBoost_default"] = fold_cb
-    prediction_details["CatBoost_default"] = (pred_cb, actual_cb, groups_cb)
-else:
-    logger.warning("CatBoost not available - skipping")
+# if CatBoostRegressor is not None:
+#     logger.info("\n3. Training CatBoost default...")
+#     cb_model = CatBoostRegressor(
+#         verbose=0,
+#         random_state=RANDOM_STATE
+#     )
+#     res_cb, fold_cb, pred_cb, actual_cb, groups_cb = evaluate_model(
+#         cb_model, X, y, groups, "CatBoost_default"
+#     )
+#     results.append(res_cb)
+#     fold_details["CatBoost_default"] = fold_cb
+#     prediction_details["CatBoost_default"] = (pred_cb, actual_cb, groups_cb)
+# else:
+#     logger.warning("CatBoost not available - skipping")
 
 
 # Hyperparameter Tuning with GroupKFold (Fixes Data Leakage)
@@ -344,77 +350,77 @@ group_cv = GroupKFold(n_splits=min(5, len(np.unique(groups))))
 tuning_results = {}
 
 # 4. XGBoost Tuning
-if xgb is not None:
-    logger.info("\n4. Tuning XGBoost...")
-    xgb_param_space = {
-        "n_estimators": [100, 300, 500],
-        "max_depth": [3, 5, 7],
-        "learning_rate": [0.01, 0.05, 0.1],
-        "subsample": [0.6, 0.8, 1.0],
-        "colsample_bytree": [0.6, 0.8, 1.0]
-    }
+# if xgb is not None:
+#     logger.info("\n4. Tuning XGBoost...")
+#     xgb_param_space = {
+#         "n_estimators": [100, 300, 500],
+#         "max_depth": [3, 5, 7],
+#         "learning_rate": [0.01, 0.05, 0.1],
+#         "subsample": [0.6, 0.8, 1.0],
+#         "colsample_bytree": [0.6, 0.8, 1.0]
+#     }
     
-    xgb_search = RandomizedSearchCV(
-        xgb.XGBRegressor(objective="reg:squarederror", random_state=RANDOM_STATE, n_jobs=-1),
-        xgb_param_space,
-        n_iter=10,
-        scoring="neg_mean_squared_error",
-        cv=group_cv,
-        random_state=RANDOM_STATE,
-        n_jobs=1,
-        verbose=1
-    )
+#     xgb_search = RandomizedSearchCV(
+#         xgb.XGBRegressor(objective="reg:squarederror", random_state=RANDOM_STATE, n_jobs=-1),
+#         xgb_param_space,
+#         n_iter=10,
+#         scoring="neg_mean_squared_error",
+#         cv=group_cv,
+#         random_state=RANDOM_STATE,
+#         n_jobs=1,
+#         verbose=1
+#     )
     
-    xgb_search.fit(X, y, groups=groups)
-    logger.info(f"  Best params: {xgb_search.best_params_}")
-    logger.info(f"  Best CV score: {-xgb_search.best_score_:.3f} (MSE)")
+#     xgb_search.fit(X, y, groups=groups)
+#     logger.info(f"  Best params: {xgb_search.best_params_}")
+#     logger.info(f"  Best CV score: {-xgb_search.best_score_:.3f} (MSE)")
     
-    # Store best params for later use
-    tuning_results["xgboost"] = xgb_search.best_params_
+#     # Store best params for later use
+#     tuning_results["xgboost"] = xgb_search.best_params_
     
-    # Evaluate tuned model with LOGO
-    res_xgb_tuned, fold_xgb_tuned, pred_xgb_t, actual_xgb_t, groups_xgb_t = evaluate_model(
-        xgb_search.best_estimator_, X, y, groups, "XGBoost_tuned"
-    )
-    results.append(res_xgb_tuned)
-    fold_details["XGBoost_tuned"] = fold_xgb_tuned
-    prediction_details["XGBoost_tuned"] = (pred_xgb_t, actual_xgb_t, groups_xgb_t)
+#     # Evaluate tuned model with LOGO
+#     res_xgb_tuned, fold_xgb_tuned, pred_xgb_t, actual_xgb_t, groups_xgb_t = evaluate_model(
+#         xgb_search.best_estimator_, X, y, groups, "XGBoost_tuned"
+#     )
+#     results.append(res_xgb_tuned)
+#     fold_details["XGBoost_tuned"] = fold_xgb_tuned
+#     prediction_details["XGBoost_tuned"] = (pred_xgb_t, actual_xgb_t, groups_xgb_t)
 
 # 5. CatBoost Tuning
-if CatBoostRegressor is not None:
-    logger.info("\n5. Tuning CatBoost...")
-    cb_param_space = {
-        "iterations": [200, 500, 800],
-        "depth": [4, 6, 8],
-        "learning_rate": [0.01, 0.05, 0.1],
-        "l2_leaf_reg": [1, 3, 5]
-    }
+# if CatBoostRegressor is not None:
+#     logger.info("\n5. Tuning CatBoost...")
+#     cb_param_space = {
+#         "iterations": [200, 500, 800],
+#         "depth": [4, 6, 8],
+#         "learning_rate": [0.01, 0.05, 0.1],
+#         "l2_leaf_reg": [1, 3, 5]
+#     }
     
-    cb_search = RandomizedSearchCV(
-        CatBoostRegressor(random_state=RANDOM_STATE, verbose=0),
-        cb_param_space,
-        n_iter=10,
-        scoring="neg_mean_squared_error",
-        cv=group_cv,
-        random_state=RANDOM_STATE,
-        n_jobs=1,
-        verbose=1
-    )
+#     cb_search = RandomizedSearchCV(
+#         CatBoostRegressor(random_state=RANDOM_STATE, verbose=0),
+#         cb_param_space,
+#         n_iter=10,
+#         scoring="neg_mean_squared_error",
+#         cv=group_cv,
+#         random_state=RANDOM_STATE,
+#         n_jobs=1,
+#         verbose=1
+#     )
     
-    cb_search.fit(X, y, groups=groups)
-    logger.info(f"  Best params: {cb_search.best_params_}")
-    logger.info(f"  Best CV score: {-cb_search.best_score_:.3f} (MSE)")
+#     cb_search.fit(X, y, groups=groups)
+#     logger.info(f"  Best params: {cb_search.best_params_}")
+#     logger.info(f"  Best CV score: {-cb_search.best_score_:.3f} (MSE)")
     
-    # Store best params
-    tuning_results["catboost"] = cb_search.best_params_
+#     # Store best params
+#     tuning_results["catboost"] = cb_search.best_params_
     
-    # Evaluate tuned model
-    res_cb_tuned, fold_cb_tuned, pred_cb_t, actual_cb_t, groups_cb_t = evaluate_model(
-        cb_search.best_estimator_, X, y, groups, "CatBoost_tuned"
-    )
-    results.append(res_cb_tuned)
-    fold_details["CatBoost_tuned"] = fold_cb_tuned
-    prediction_details["CatBoost_tuned"] = (pred_cb_t, actual_cb_t, groups_cb_t)
+#     # Evaluate tuned model
+#     res_cb_tuned, fold_cb_tuned, pred_cb_t, actual_cb_t, groups_cb_t = evaluate_model(
+#         cb_search.best_estimator_, X, y, groups, "CatBoost_tuned"
+#     )
+#     results.append(res_cb_tuned)
+#     fold_details["CatBoost_tuned"] = fold_cb_tuned
+#     prediction_details["CatBoost_tuned"] = (pred_cb_t, actual_cb_t, groups_cb_t)
 
 
 # Save Results and Select Best Model
@@ -483,12 +489,22 @@ logger.info(f"Best model saved to {RESULTS_DIR / 'best_model.joblib'}")
 
 # SHAP Analysis for Model Interpretability
 logger.info("\n" + "="*80)
-logger.info("SHAP ANALYSIS")
+logger.info("SHAP ANALYSIS (Random Forest)")
 logger.info("="*80)
 
+rf_for_shap = RandomForestRegressor(
+    n_estimators=500,
+    min_samples_leaf=2,
+    random_state=RANDOM_STATE,
+    n_jobs=-1
+)
+rf_for_shap.fit(X, y)
+
 try:
-    explainer = shap.TreeExplainer(final_model)
+    explainer = shap.TreeExplainer(rf_for_shap)
     shap_values = explainer.shap_values(X)
+    # explainer = shap.TreeExplainer(final_model)
+    # shap_values = explainer.shap_values(X)
     
     logger.info("Generating SHAP visualizations...")
     
@@ -496,6 +512,9 @@ try:
     plt.figure(figsize=(10, 6))
     shap.summary_plot(shap_values, X, show=False, plot_type="bar")
     plt.title(f"SHAP Feature Importance - {best_model_name}", fontsize=14, pad=20)
+    plt.xlabel("Mean SHAP Value", fontsize=12)
+    plt.ylabel("Water Quality Parameters", fontsize=12)
+    plt.figtext(0.5, -0.08, "Figure 2", ha="center", fontsize=11)
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / "shap_summary_bar.png", dpi=200, bbox_inches="tight")
     plt.close()
@@ -556,24 +575,38 @@ logger.info("PREDICTION ANALYSIS")
 logger.info("="*80)
 
 # Analyze predictions from best model
-if best_model_name in prediction_details:
-    preds, actuals, test_groups = prediction_details[best_model_name]
+rf_key = "RandomForest"
+
+if rf_key in prediction_details:
+    preds, actuals, test_groups, test_years = prediction_details[rf_key]
     
     # Create prediction dataframe
     pred_df = pd.DataFrame({
+        "Year": test_years,
         "Actual": actuals,
         "Predicted": preds,
         "Place": test_groups,
         "Residual": np.array(actuals) - np.array(preds)
     })
-    pred_df.to_csv(RESULTS_DIR / "predictions_best_model.csv", index=False)
-    logger.info(f"Predictions saved to: predictions_best_model.csv")
+    pred_df = pred_df.sort_values(["Place", "Year"])
+    # pred_df.to_csv(RESULTS_DIR / "predictions_best_model.csv", index=False)
+    # logger.info(f"Predictions saved to: predictions_best_model.csv")
+    pred_df.to_csv(RESULTS_DIR / "rf_predictions_best_model.csv", index=False)
+    logger.info(f"Predictions saved to: rf_predictions_best_model.csv")
     
     # Residual analysis
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     
     # Predicted vs Actual
-    axes[0].scatter(actuals, preds, alpha=0.6, edgecolors='k', linewidth=0.5)
+    axes[0].scatter(
+        actuals,
+        preds,
+        alpha=0.6,
+        edgecolors='k',
+        linewidth=0.5,
+        label='Random Forest Predictions'
+    )
+    
     min_val = min(min(actuals), min(preds))
     max_val = max(max(actuals), max(preds))
     axes[0].plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Perfect Prediction')
@@ -582,26 +615,46 @@ if best_model_name in prediction_details:
     axes[0].set_title(f'Predicted vs Actual - {best_model_name}', fontsize=13)
     axes[0].legend()
     axes[0].grid(alpha=0.3)
+    axes[0].text(
+        0.5, -0.25,
+        "Figure 1(a)",
+        transform=axes[0].transAxes,
+        ha="center",
+        fontsize=11
+    )
+
     
     # Residual plot
-    axes[1].scatter(preds, pred_df["Residual"], alpha=0.6, edgecolors='k', linewidth=0.5)
-    axes[1].axhline(y=0, color='r', linestyle='--', lw=2)
+    axes[1].scatter(preds, pred_df["Residual"], alpha=0.6, edgecolors='k', linewidth=0.5, label='Residuals')
+    axes[1].axhline(y=0, color='r', linestyle='--', lw=2, label='Perfect Prediction')
     axes[1].set_xlabel('Predicted WQI', fontsize=12)
     axes[1].set_ylabel('Residual (Actual - Predicted)', fontsize=12)
     axes[1].set_title('Residual Plot', fontsize=13)
+    axes[1].legend()
     axes[1].grid(alpha=0.3)
-    
+    axes[1].text(
+        0.5, -0.25,
+        "Figure 1(b)",
+        transform=axes[1].transAxes,
+        ha="center",
+        fontsize=11
+    )
+
     plt.tight_layout()
-    plt.savefig(RESULTS_DIR / "prediction_analysis.png", dpi=200, bbox_inches="tight")
+    # plt.savefig(RESULTS_DIR / "prediction_analysis.png", dpi=200, bbox_inches="tight")
+    plt.savefig(RESULTS_DIR / "rf_prediction_analysis.png", dpi=200, bbox_inches="tight")
     plt.close()
-    logger.info("Saved: prediction_analysis.png")
+    # logger.info("Saved: prediction_analysis.png")
+    logger.info("Saved: rf_prediction_analysis.png")
     
     # Per-place error analysis
     place_errors = pred_df.groupby("Place")["Residual"].agg(['mean', 'std', 'count'])
     place_errors.columns = ['Mean_Residual', 'Std_Residual', 'N_Samples']
     place_errors = place_errors.sort_values('Mean_Residual', ascending=False)
-    place_errors.to_csv(RESULTS_DIR / "per_place_errors.csv")
-    logger.info("Saved: per_place_errors.csv")
+    # place_errors.to_csv(RESULTS_DIR / "per_place_errors.csv")
+    # logger.info("Saved: per_place_errors.csv")
+    place_errors.to_csv(RESULTS_DIR / "rf_per_place_errors.csv")
+    logger.info("Saved: rf_per_place_errors.csv")
     
     logger.info("\nPlaces with largest prediction errors:")
     logger.info(place_errors.head(5).to_string())

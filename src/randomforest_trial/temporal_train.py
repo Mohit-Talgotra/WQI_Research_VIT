@@ -2,9 +2,15 @@ import os
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+import matplotlib.pyplot as plt
+import math
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from pathlib import Path
+
+OUTPUT_DIR = Path("quarterly_graphs")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 load_dotenv()
 
@@ -46,10 +52,11 @@ def map_season(month):
 def build_quarterly_dataset(df):
     df["Year"] = df["Sample Collection date"].dt.year
     df["Quarter"] = df["Sample Collection date"].dt.to_period("Q").astype(str)
+    df["Quarter_num"] = df["Sample Collection date"].dt.to_period("Q").astype(int)
 
     grouped = (
         df
-        .groupby(["Village", "Year", "Quarter"])[list(standards.keys())]
+        .groupby(["Village", "Year", "Quarter", "Quarter_num"])[list(standards.keys())]
         .mean()
         .reset_index()
         .rename(columns={"Village": "Place"})
@@ -75,6 +82,7 @@ def build_seasonal_dataset(df):
     return grouped
 
 def evaluate_logo_model(df, feature_cols, name):
+    all_preds = []
     X = df[feature_cols]
     y = df["WQI"]
     groups = df["Place"].values
@@ -96,6 +104,10 @@ def evaluate_logo_model(df, feature_cols, name):
 
         model.fit(X_tr, y_tr)
         preds = model.predict(X_te)
+        
+        fold_df = df.iloc[test_idx].copy()
+        fold_df["Predicted_WQI"] = preds
+        all_preds.append(fold_df)
 
         rmses.append(np.sqrt(mean_squared_error(y_te, preds)))
         maes.append(mean_absolute_error(y_te, preds))
@@ -110,6 +122,85 @@ def evaluate_logo_model(df, feature_cols, name):
     if r2s:
         print(f"R²   : {np.mean(r2s):.3f}")
     print("=" * 70)
+    predictions_df = pd.concat(all_preds, ignore_index=True)
+    return predictions_df
+
+def plot_quarterly_predictions(pred_df, locations_per_fig=3):
+    pred_df = pred_df.sort_values(["Place", "Year", "Quarter"])
+
+    places = pred_df["Place"].unique()
+    n_figs = math.ceil(len(places) / locations_per_fig)
+
+    for i in range(n_figs):
+        subset_places = places[i*locations_per_fig:(i+1)*locations_per_fig]
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        colors = plt.cm.tab10.colors  # 10 distinct colors
+
+        for idx, place in enumerate(subset_places):
+            p_df = pred_df[pred_df["Place"] == place]
+            
+            p_df = p_df.sort_values("Quarter_num")
+            
+            p_df["Quarter_gap"] = p_df["Quarter_num"].diff() > 1
+            
+            p_df = p_df.reset_index(drop=True)
+
+            gap_pos = np.where(p_df["Quarter_gap"].values)[0]
+
+            segments = []
+            start = 0
+
+            for g in gap_pos:
+                segments.append(p_df.iloc[start:g])
+                start = g
+
+            segments.append(p_df.iloc[start:])
+            
+            color = colors[idx % len(colors)]
+            
+            for seg in segments:
+                ax.plot(
+                    seg["Quarter_num"],
+                    seg["WQI"],
+                    linestyle="--",
+                    marker="o",
+                    color=color,
+                    label=f"{place} (Actual)" if seg is segments[0] else None
+                )
+
+                ax.plot(
+                    seg["Quarter_num"],
+                    seg["Predicted_WQI"],
+                    linestyle="-",
+                    marker="x",
+                    color=color,
+                    label=f"{place} (Predicted)" if seg is segments[0] else None
+                )
+        
+        ax.set_xlabel("Quarter (time order)")
+        ax.set_ylabel("WQI")
+        ax.set_title("Quarterly WQI: Actual vs Predicted")
+        ax.legend()
+        ax.grid(alpha=0.3)
+        ax.tick_params(axis='x', rotation=45)
+        
+        xticks = sorted(p_df["Quarter_num"].unique())
+        xtick_labels = (
+            p_df.drop_duplicates("Quarter_num")
+                .set_index("Quarter_num")
+                .loc[xticks]["Quarter"]
+                .tolist()
+        )
+
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xtick_labels, rotation=45)
+        
+        plt.tight_layout()
+        out_file = OUTPUT_DIR / f"quarterly_wqi_actual_vs_predicted_{i+1}.png"
+        plt.savefig(out_file, dpi=300, bbox_inches="tight")
+        plt.close()
+        
 
 def main():
     data_path = os.environ["WQI_CALCULATED_DATA_FILE_PATH"]
@@ -126,7 +217,7 @@ def main():
     quarterly_df.to_csv("quarterly_wqi_dataset.csv", index=False)
 
     quarterly_features = list(standards.keys())
-    evaluate_logo_model(
+    quarterly_preds = evaluate_logo_model(
         quarterly_df,
         quarterly_features,
         "QUARTERLY WQI PREDICTION"
@@ -145,7 +236,8 @@ def main():
         seasonal_features,
         "SEASONAL WQI PREDICTION"
     )
-
+    
+    plot_quarterly_predictions(quarterly_preds, locations_per_fig=3)
 
 if __name__ == "__main__":
     main()
