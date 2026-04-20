@@ -1,7 +1,7 @@
 .env
 data_cleaning.ipynb
-
+.venv
 **/data
-**/venv
 **/__pycache__
 **/results
+catboost_info

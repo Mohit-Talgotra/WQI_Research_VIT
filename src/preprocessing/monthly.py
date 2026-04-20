@@ -27,8 +27,19 @@ STANDARDS = {
     "Nitrate (as NO3) (mg/l)":                          {"Sn": 45,   "Videal": 0},
 }
 
-K       = 1 / sum(1 / STANDARDS[p]["Sn"] for p in STANDARDS)
+K = 1 / sum(1 / STANDARDS[p]["Sn"] for p in STANDARDS)
 WEIGHTS = {p: K / STANDARDS[p]["Sn"] for p in STANDARDS}
+
+PARAMETER_OUTPUT_NAMES = {
+    "pH (NA)": "pH_mean",
+    "TDS (mg/l)": "TDS_mean",
+    "Total Hardness (As CaCO3) (mg/l)": "Hardness_mean",
+    "Chloride (as Cl) (mg/l)": "Chloride_mean",
+    "Fluoride (as F) (mg/l)": "Fluoride_mean",
+    "Total Alkalinity (as Calcium Carbonate) (mg/l)": "Alkalinity_mean",
+    "Sulphate (as SO4) (mg/l)": "Sulphate_mean",
+    "Nitrate (as NO3) (mg/l)": "Nitrate_mean",
+}
 
 def calc_qn(value: float, Sn: float, Videal: float) -> float:
     qn = ((value - Videal) / (Sn - Videal)) * 100
@@ -217,8 +228,8 @@ monthly = (
            WQI_std         = ("WQI",  "std"),
            n_records       = ("WQI",  "count"),
            n_unique_dates  = (date_col, "nunique"),
-           # Also aggregate raw parameters (useful for inspection / fallback)
-           **{p.split(" ")[0] + "_mean": (p, "mean")
+           # Also aggregate raw parameters with stable output names
+           **{PARAMETER_OUTPUT_NAMES[p]: (p, "mean")
               for p in STANDARDS if p in raw.columns}
        )
        .reset_index()

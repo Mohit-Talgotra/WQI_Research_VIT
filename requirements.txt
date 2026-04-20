@@ -6,3 +6,8 @@ seaborn
 python-dotenv
 shap
 catboost
+xgboost
+streamlit
+folium
+streamlit_folium
+geopy
