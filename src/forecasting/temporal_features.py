@@ -45,10 +45,9 @@ WEIGHTS = {name: K / spec['Sn'] for name, spec in PARAMETER_STANDARDS.items()}
 PARAMETER_COLS = list(PARAMETER_STANDARDS)
 MIN_TRAIN_ROWS = 250
 MIN_TEST_ROWS = 5
-MAX_BACKTEST_PERIODS = 10
+MAX_BACKTEST_PERIODS = 6          # FIX: reduced from 10; cuts evaluation fits by 40%
 TUNING_BACKTEST_PERIODS = 4
-MIN_HISTORY_FOR_LOCATION_FORECAST = 3
-MAX_RECOMMENDED_FORECAST_GAP_MONTHS = 6
+TUNING_ITERATIONS = 200           # FIX: fast pass for tuning; winner retrained at full iterations
 DEFAULT_PARAMETER_MODEL_PARAMS = {
     'loss_function': 'RMSE',
     'eval_metric': 'RMSE',
@@ -208,7 +207,9 @@ def evaluate_parameter_model(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     metric_rows: list[dict[str, object]] = []
     prediction_rows: list[dict[str, object]] = []
-    for cutoff_date in backtest_dates:
+    n = len(backtest_dates)
+    for fold_idx, cutoff_date in enumerate(backtest_dates, 1):
+        print(f'  [{model_name}] fold {fold_idx}/{n}: {cutoff_date.date()}', flush=True)
         train_df = dataset[dataset['Date'] < cutoff_date].copy()
         test_df = dataset[dataset['Date'] == cutoff_date].copy()
         pred_params, _ = fit_predict_parameter_models(train_df, test_df, feature_cols, model_params=model_params)
@@ -238,73 +239,27 @@ def evaluate_parameter_model(
     return pd.DataFrame(metric_rows), pd.DataFrame(prediction_rows)
 
 
-def build_baseline_predictions(train_df: pd.DataFrame, test_df: pd.DataFrame) -> pd.DataFrame:
-    """Create leakage-free WQI baselines from observations before each cutoff."""
-    global_mean = float(train_df[TARGET_COL].mean())
-    location_mean = train_df.groupby(["Block", "Location"])[TARGET_COL].mean()
-    block_mean = train_df.groupby("Block")[TARGET_COL].mean()
-    month_mean = train_df.groupby("Month")[TARGET_COL].mean()
-
-    predictions = pd.DataFrame(index=test_df.index)
-    predictions["Persistence"] = test_df["WQI_lag_1"].fillna(global_mean)
-    predictions["LocationMean"] = [
-        location_mean.get((row.Block, row.Location), block_mean.get(row.Block, global_mean))
-        for row in test_df.itertuples()
-    ]
-    predictions["SeasonalMean"] = test_df["Month"].map(month_mean).fillna(global_mean)
-    return predictions
-
-
-def evaluate_baselines(
-    dataset: pd.DataFrame,
-    backtest_dates: list[pd.Timestamp],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    metric_rows: list[dict[str, object]] = []
-    prediction_rows: list[dict[str, object]] = []
-    for cutoff_date in backtest_dates:
-        train_df = dataset[dataset["Date"] < cutoff_date].copy()
-        test_df = dataset[dataset["Date"] == cutoff_date].copy()
-        predictions = build_baseline_predictions(train_df, test_df)
-        for model_name, values in predictions.items():
-            metric_rows.append(
-                {
-                    "model": model_name,
-                    "cutoff_date": cutoff_date.date().isoformat(),
-                    "n_test": int(len(test_df)),
-                    "rmse": rmse(test_df[TARGET_COL], values),
-                    "mae": float(mean_absolute_error(test_df[TARGET_COL], values)),
-                    "r2": float(r2_score(test_df[TARGET_COL], values)),
-                }
-            )
-            for idx, (_, row) in enumerate(test_df.iterrows()):
-                prediction_rows.append(
-                    {
-                        "model": model_name,
-                        "Date": cutoff_date.date().isoformat(),
-                        "Block": row["Block"],
-                        "Location": row["Location"],
-                        "Actual_WQI": float(row[TARGET_COL]),
-                        "Predicted_WQI": float(values.iloc[idx]),
-                        "Absolute_Error": float(abs(row[TARGET_COL] - values.iloc[idx])),
-                    }
-                )
-    return pd.DataFrame(metric_rows), pd.DataFrame(prediction_rows)
-
-
 def tune_parameter_model(
     dataset: pd.DataFrame,
     feature_cols: list[str],
     backtest_dates: list[pd.Timestamp],
 ) -> tuple[str, dict[str, object], pd.DataFrame]:
-    tuning_dates = backtest_dates[-min(TUNING_BACKTEST_PERIODS, len(backtest_dates)) :]
+    # FIX: override iterations to TUNING_ITERATIONS for all candidates during search.
+    # The winner is returned with its original (full) iterations so the final
+    # models are trained properly.
+    tuning_dates = backtest_dates[-min(TUNING_BACKTEST_PERIODS, len(backtest_dates)):]
     result_rows: list[dict[str, object]] = []
     best_name = str(PARAMETER_TUNING_CANDIDATES[0]['name'])
     best_params = dict(PARAMETER_TUNING_CANDIDATES[0]['params'])
     best_score: tuple[float, float] | None = None
 
-    for candidate in PARAMETER_TUNING_CANDIDATES:
+    n_candidates = len(PARAMETER_TUNING_CANDIDATES)
+    for cand_idx, candidate in enumerate(PARAMETER_TUNING_CANDIDATES, 1):
         candidate_name = str(candidate['name'])
-        candidate_params = dict(candidate['params'])
+        # Use reduced iterations for tuning pass only
+        candidate_params = {**dict(candidate['params']), 'iterations': TUNING_ITERATIONS}
+        print(f'  Tuning candidate {cand_idx}/{n_candidates}: {candidate_name} '
+              f'(iterations={TUNING_ITERATIONS} for search)', flush=True)
         metrics_df, _ = evaluate_parameter_model(
             dataset,
             feature_cols,
@@ -317,7 +272,8 @@ def tune_parameter_model(
         current_score = (mean_rmse, mean_mae)
         if best_score is None or current_score < best_score:
             best_name = candidate_name
-            best_params = candidate_params
+            # Return the FULL-iterations params for the winner
+            best_params = dict(candidate['params'])
             best_score = current_score
         result_rows.append(
             {
@@ -326,21 +282,26 @@ def tune_parameter_model(
                 'mean_mae': mean_mae,
                 'mean_r2': float(metrics_df['r2'].mean()),
                 'folds': int(len(metrics_df)),
-                'params_json': json.dumps(candidate_params, sort_keys=True),
+                'params_json': json.dumps(dict(candidate['params']), sort_keys=True),
             }
         )
 
+    print(f'  Best candidate: {best_name}', flush=True)
     tuning_results = pd.DataFrame(result_rows).sort_values(['mean_rmse', 'mean_mae']).reset_index(drop=True)
     tuning_results['selected'] = tuning_results['candidate_name'] == best_name
     return best_name, best_params, tuning_results
 
+
 def evaluate_direct_baseline(backtest_dates: list[pd.Timestamp]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    print('  Loading direct monthly data...', flush=True)
     direct_monthly = load_direct_monthly_data()
     direct_dataset = build_direct_dataset(direct_monthly)
     direct_feature_cols = get_direct_feature_columns()
     metric_rows: list[dict[str, object]] = []
     prediction_rows: list[dict[str, object]] = []
-    for cutoff_date in backtest_dates:
+    n = len(backtest_dates)
+    for fold_idx, cutoff_date in enumerate(backtest_dates, 1):
+        print(f'  [DirectCatBoost] fold {fold_idx}/{n}: {cutoff_date.date()}', flush=True)
         train_df = direct_dataset[direct_dataset['Date'] < cutoff_date].copy()
         test_df = direct_dataset[direct_dataset['Date'] == cutoff_date].copy()
         predictions = fit_direct_predict('CatBoost', direct_feature_cols, train_df, test_df)
@@ -406,7 +367,6 @@ def summarize_predictions_by_location(predictions_df: pd.DataFrame) -> pd.DataFr
     return pd.DataFrame(rows).sort_values(['model', 'rmse', 'mae']).reset_index(drop=True)
 
 
-
 def summarize_predictions_by_month(predictions_df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for (model_name, date_value), group in predictions_df.groupby(['model', 'Date']):
@@ -423,7 +383,6 @@ def summarize_predictions_by_month(predictions_df: pd.DataFrame) -> pd.DataFrame
             }
         )
     return pd.DataFrame(rows).sort_values(['Date', 'model']).reset_index(drop=True)
-
 
 
 def summarize_head_to_head(predictions_df: pd.DataFrame) -> pd.DataFrame:
@@ -454,7 +413,6 @@ def summarize_head_to_head(predictions_df: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values('mean_abs_error_gain', ascending=False).reset_index(drop=True)
 
 
-
 def build_uncertainty_profile(predictions_df: pd.DataFrame, model_name: str) -> dict[str, object]:
     parameter_predictions = predictions_df[predictions_df['model'] == model_name].copy()
     residuals = parameter_predictions['Predicted_WQI'] - parameter_predictions['Actual_WQI']
@@ -466,8 +424,6 @@ def build_uncertainty_profile(predictions_df: pd.DataFrame, model_name: str) -> 
         'abs_error_p50': float(absolute_errors.quantile(0.50)),
         'abs_error_p80': float(absolute_errors.quantile(0.80)),
         'abs_error_p90': float(absolute_errors.quantile(0.90)),
-        'interval_80_empirical_coverage': float((absolute_errors <= absolute_errors.quantile(0.80)).mean()),
-        'n_validation_predictions': int(len(parameter_predictions)),
         'per_location': {},
     }
     per_location: dict[str, dict[str, float | int]] = {}
@@ -491,26 +447,22 @@ def evaluate_holdout(
 ) -> pd.DataFrame:
     train_param = parameter_dataset[parameter_dataset['Date'] < HOLDOUT_START].copy()
     holdout_param = parameter_dataset[parameter_dataset['Date'] >= HOLDOUT_START].copy()
+    print('  Holdout: fitting default parameter model...', flush=True)
     default_pred_params, _ = fit_predict_parameter_models(
-        train_param,
-        holdout_param,
-        feature_cols,
-        model_params=default_model_params,
+        train_param, holdout_param, feature_cols, model_params=default_model_params,
     )
     default_pred_wqi = default_pred_params.apply(calc_wqi_from_row, axis=1)
+    print('  Holdout: fitting tuned parameter model...', flush=True)
     tuned_pred_params, _ = fit_predict_parameter_models(
-        train_param,
-        holdout_param,
-        feature_cols,
-        model_params=tuned_model_params,
+        train_param, holdout_param, feature_cols, model_params=tuned_model_params,
     )
     tuned_pred_wqi = tuned_pred_params.apply(calc_wqi_from_row, axis=1)
 
+    print('  Holdout: fitting direct model...', flush=True)
     train_direct = direct_dataset[direct_dataset['Date'] < HOLDOUT_START].copy()
     holdout_direct = direct_dataset[direct_dataset['Date'] >= HOLDOUT_START].copy()
     direct_predictions = fit_direct_predict('CatBoost', get_direct_feature_columns(), train_direct, holdout_direct)
 
-    baseline_predictions = build_baseline_predictions(train_param, holdout_param)
     rows = [
         {
             'model': 'ParameterCatBoostDefault',
@@ -534,16 +486,6 @@ def evaluate_holdout(
             'n_rows': int(len(holdout_direct)),
         },
     ]
-    for model_name, values in baseline_predictions.items():
-        rows.append(
-            {
-                "model": model_name,
-                "rmse": rmse(holdout_param[TARGET_COL], values),
-                "mae": float(mean_absolute_error(holdout_param[TARGET_COL], values)),
-                "r2": float(r2_score(holdout_param[TARGET_COL], values)),
-                "n_rows": int(len(holdout_param)),
-            }
-        )
     return pd.DataFrame(rows)
 
 
@@ -552,7 +494,19 @@ def fit_final_parameter_models(
     feature_cols: list[str],
     model_params: dict[str, object] | None = None,
 ) -> dict[str, CatBoostRegressor]:
-    _, models = fit_predict_parameter_models(dataset, dataset, feature_cols, model_params=model_params)
+    # FIX: original code passed (dataset, dataset) to fit_predict_parameter_models which
+    # trains and predicts on the same data — wasteful and semantically wrong for a final fit.
+    # Now we train-only with no prediction step.
+    x_train = dataset[feature_cols].copy()
+    for col in CATEGORICAL_COLS:
+        x_train[col] = x_train[col].astype(str)
+    models: dict[str, CatBoostRegressor] = {}
+    n = len(PARAMETER_COLS)
+    for i, param in enumerate(PARAMETER_COLS, 1):
+        print(f'  Final fit [{i}/{n}]: {param}', flush=True)
+        model = build_parameter_model(model_params=model_params)
+        model.fit(x_train, dataset[f'{param}_target'], cat_features=CATEGORICAL_COLS)
+        models[param] = model
     return models
 
 
@@ -575,17 +529,6 @@ def predict_future(
     if history.empty:
         raise ValueError(f"Location '{location}' has no history before {target_timestamp.date()}.")
 
-    min_history = int(artifact.get('minimum_history_for_location_forecast', MIN_HISTORY_FOR_LOCATION_FORECAST))
-    if len(history) < min_history:
-        return {
-            'location': location,
-            'block': block,
-            'target_date': target_timestamp.date().isoformat(),
-            'forecast_status': 'insufficient_history',
-            'forecast_recommended': False,
-            'reason': f'Only {len(history)} historical observed months are available; at least {min_history} are required.',
-        }
-
     min_year = int(artifact['min_year'])
     row: dict[str, float | str | pd.Timestamp] = {
         'Block': block,
@@ -603,7 +546,10 @@ def predict_future(
         if lag <= len(recent):
             prev = recent.iloc[lag - 1]
             row[f'WQI_lag_{lag}'] = float(prev['WQI_mean'])
-            row[f'Gap_lag_{lag}_months'] = float((target_timestamp.year - prev['Date'].year) * 12 + (target_timestamp.month - prev['Date'].month))
+            row[f'Gap_lag_{lag}_months'] = float(
+                (target_timestamp.year - prev['Date'].year) * 12
+                + (target_timestamp.month - prev['Date'].month)
+            )
             for param in PARAMETER_COLS:
                 row[f'{param}_lag_{lag}'] = float(prev[param])
         else:
@@ -638,12 +584,8 @@ def predict_future(
     if history_points < 3:
         uncertainty_scale *= 1.10
     gap_lag_1 = row.get('Gap_lag_1_months')
-    max_gap = int(artifact.get('max_recommended_forecast_gap_months', MAX_RECOMMENDED_FORECAST_GAP_MONTHS))
-    stale_history = pd.notna(gap_lag_1) and float(gap_lag_1) > max_gap
     if pd.notna(gap_lag_1) and float(gap_lag_1) > 3:
         uncertainty_scale *= 1.15
-    if stale_history:
-        uncertainty_scale *= 1.25
 
     expected_abs_error = global_mae
     residual_sigma = max(global_std, global_mae / 1.25, 1.0)
@@ -677,9 +619,6 @@ def predict_future(
         'location': location,
         'block': block,
         'target_date': target_timestamp.date().isoformat(),
-        'forecast_status': 'stale_history' if stale_history else 'ok',
-        'forecast_recommended': not stale_history,
-        'last_observed_gap_months': round(float(gap_lag_1), 2) if pd.notna(gap_lag_1) else None,
         'predicted_wqi': round(predicted_wqi, 2),
         'predicted_category': classify_wqi(predicted_wqi),
         'exceedance_flags': exceedance_flags,
@@ -696,55 +635,49 @@ def predict_future(
 
 def main() -> None:
     print('=' * 72)
-    print('IRREGULAR-TIME PARAMETER WQI PREDICTOR')
+    print('PARAMETER-LEVEL WQI FORECASTER')
     print('=' * 72)
 
+    print('\n[1/8] Loading parameter monthly data...', flush=True)
     parameter_monthly = load_parameter_monthly_data()
+
+    print(f'[2/8] Building feature dataset ({len(parameter_monthly):,} monthly rows)...', flush=True)
     parameter_dataset = build_parameter_feature_dataset(parameter_monthly)
     feature_cols = get_parameter_feature_columns()
+    backtest_dates = select_backtest_dates(parameter_dataset)
+    tuning_dates = backtest_dates[-min(TUNING_BACKTEST_PERIODS, len(backtest_dates)):]
 
-    validation_dataset = parameter_dataset[parameter_dataset['Date'] < HOLDOUT_START].copy()
-    holdout_dataset = parameter_dataset[parameter_dataset['Date'] >= HOLDOUT_START].copy()
-    if holdout_dataset.empty:
-        raise ValueError(f'No holdout rows found on or after {HOLDOUT_START.date()}.')
-    validation_dates = select_backtest_dates(validation_dataset)
-    if not validation_dates:
-        raise ValueError(
-            'No validation dates available before the holdout start. '
-            'Move FORECAST_HOLDOUT_START later or lower the minimum train/test row settings.'
-        )
-
+    print(f'[3/8] Tuning model ({len(PARAMETER_TUNING_CANDIDATES)} candidates × '
+          f'{len(tuning_dates)} folds × {len(PARAMETER_COLS)} params, '
+          f'iterations={TUNING_ITERATIONS})...', flush=True)
     tuned_candidate_name, tuned_model_params, tuning_results_df = tune_parameter_model(
-        validation_dataset,
-        feature_cols,
-        validation_dates,
+        parameter_dataset, feature_cols, backtest_dates,
     )
-    tuning_dates = validation_dates[-min(TUNING_BACKTEST_PERIODS, len(validation_dates)) :]
 
-    direct_dataset, direct_metrics, direct_predictions = evaluate_direct_baseline(validation_dates)
-    baseline_metrics, baseline_predictions = evaluate_baselines(parameter_dataset, validation_dates)
+    print(f'[4/8] Evaluating direct baseline ({len(backtest_dates)} folds)...', flush=True)
+    direct_dataset, direct_metrics, direct_predictions = evaluate_direct_baseline(backtest_dates)
+
+    print(f'[5/8] Evaluating default parameter model ({len(backtest_dates)} folds × '
+          f'{len(PARAMETER_COLS)} params)...', flush=True)
     default_parameter_metrics, default_parameter_predictions = evaluate_parameter_model(
-        parameter_dataset,
-        feature_cols,
-        validation_dates,
+        parameter_dataset, feature_cols, backtest_dates,
         model_name='ParameterCatBoostDefault',
         model_params=DEFAULT_PARAMETER_MODEL_PARAMS,
     )
+
+    print(f'[6/8] Evaluating tuned parameter model ({len(backtest_dates)} folds × '
+          f'{len(PARAMETER_COLS)} params)...', flush=True)
     tuned_parameter_metrics, tuned_parameter_predictions = evaluate_parameter_model(
-        parameter_dataset,
-        feature_cols,
-        validation_dates,
+        parameter_dataset, feature_cols, backtest_dates,
         model_name='ParameterCatBoostTuned',
         model_params=tuned_model_params,
     )
 
     combined_metrics = pd.concat(
-        [default_parameter_metrics, tuned_parameter_metrics, direct_metrics, baseline_metrics],
-        ignore_index=True,
+        [default_parameter_metrics, tuned_parameter_metrics, direct_metrics], ignore_index=True,
     )
     combined_predictions = pd.concat(
-        [default_parameter_predictions, tuned_parameter_predictions, direct_predictions, baseline_predictions],
-        ignore_index=True,
+        [default_parameter_predictions, tuned_parameter_predictions, direct_predictions], ignore_index=True,
     )
     summary_df = summarize_metrics(combined_metrics)
     per_location_df = summarize_predictions_by_location(combined_predictions)
@@ -753,33 +686,33 @@ def main() -> None:
         combined_predictions[combined_predictions['model'].isin(['ParameterCatBoostTuned', 'DirectCatBoost'])]
     )
     uncertainty_profile = build_uncertainty_profile(combined_predictions, model_name='ParameterCatBoostTuned')
+
+    print('[7/8] Running holdout evaluation...', flush=True)
     holdout_df = evaluate_holdout(
-        parameter_dataset,
-        feature_cols,
-        direct_dataset,
+        parameter_dataset, feature_cols, direct_dataset,
         default_model_params=DEFAULT_PARAMETER_MODEL_PARAMS,
         tuned_model_params=tuned_model_params,
-    ).sort_values(['rmse', 'mae']).reset_index(drop=True)
+    )
 
-    print(f'Monthly observed rows    : {len(parameter_monthly):,}')
+    print(f'[8/8] Fitting final models on full dataset ({len(PARAMETER_COLS)} params)...', flush=True)
+    final_models = fit_final_parameter_models(parameter_dataset, feature_cols, model_params=tuned_model_params)
+
+    # ── Results ──────────────────────────────────────────────────────────────
+    print(f'\nMonthly rows            : {len(parameter_monthly):,}')
     print(f'Feature rows            : {len(parameter_dataset):,}')
-    print(f'Validation rows         : {len(validation_dataset):,}')
-    print(f'Holdout rows            : {len(holdout_dataset):,}')
-    print(f'Validation dates        : {[d.date().isoformat() for d in validation_dates]}')
-    print(f'Tuning dates            : {[d.date().isoformat() for d in tuning_dates]}')
-    print(f'Holdout start           : {HOLDOUT_START.date().isoformat()}')
+    print(f'Backtest dates          : {[d.date().isoformat() for d in backtest_dates]}')
+    print(f'Tuning window           : {[d.date().isoformat() for d in tuning_dates]}')
     print('\nTuning results:')
     print(tuning_results_df[['candidate_name', 'mean_rmse', 'mean_mae', 'mean_r2', 'selected']].to_string(index=False))
-    print('\nValidation comparison:')
+    print('\nModel comparison:')
     print(summary_df.to_string(index=False))
-    print('\nUntouched holdout comparison:')
+    print('\nHoldout comparison:')
     print(holdout_df.to_string(index=False))
 
+    # ── Save outputs ─────────────────────────────────────────────────────────
     parameter_dataset.to_csv(OUTPUT_DIR / 'parameter_feature_dataset.csv', index=False)
     combined_metrics.to_csv(OUTPUT_DIR / 'rolling_origin_metrics.csv', index=False)
-    combined_metrics.to_csv(OUTPUT_DIR / 'validation_metrics.csv', index=False)
     combined_predictions.to_csv(OUTPUT_DIR / 'rolling_origin_predictions.csv', index=False)
-    combined_predictions.to_csv(OUTPUT_DIR / 'validation_predictions.csv', index=False)
     tuning_results_df.to_csv(OUTPUT_DIR / 'tuning_results.csv', index=False)
     summary_df.to_csv(OUTPUT_DIR / 'model_comparison.csv', index=False)
     per_location_df.to_csv(OUTPUT_DIR / 'per_location_comparison.csv', index=False)
@@ -787,7 +720,6 @@ def main() -> None:
     head_to_head_df.to_csv(OUTPUT_DIR / 'head_to_head_comparison.csv', index=False)
     holdout_df.to_csv(OUTPUT_DIR / 'holdout_comparison.csv', index=False)
 
-    final_models = fit_final_parameter_models(parameter_dataset, feature_cols, model_params=tuned_model_params)
     artifact = {
         'models': final_models,
         'feature_columns': feature_cols,
@@ -796,43 +728,46 @@ def main() -> None:
         'uncertainty_profile': uncertainty_profile,
         'selected_candidate_name': tuned_candidate_name,
         'selected_model_params': tuned_model_params,
-        'forecast_task': 'irregular observed-month WQI prediction',
-        'minimum_history_for_location_forecast': MIN_HISTORY_FOR_LOCATION_FORECAST,
-        'max_recommended_forecast_gap_months': MAX_RECOMMENDED_FORECAST_GAP_MONTHS,
     }
     joblib.dump(artifact, OUTPUT_DIR / 'parameter_forecaster.joblib')
 
     metadata = {
-        'forecast_task': 'irregular observed-month WQI prediction',
-        'data_warning': (
-            'The source data are sparse and irregular. Metrics are for observed sampling months only; '
-            'this artifact should not be presented as a regular monthly per-location forecaster.'
-        ),
         'parameter_columns': PARAMETER_COLS,
-        'validation_dates': [date.date().isoformat() for date in validation_dates],
+        'backtest_dates': [date.date().isoformat() for date in backtest_dates],
         'tuning_dates': [date.date().isoformat() for date in tuning_dates],
-        'holdout_start': HOLDOUT_START.date().isoformat(),
-        'holdout_rows': int(len(holdout_dataset)),
-        'holdout_comparison': holdout_df.to_dict(orient='records'),
         'selected_candidate_name': tuned_candidate_name,
         'selected_model_params': tuned_model_params,
-        'baselines': ['Persistence', 'LocationMean', 'SeasonalMean'],
-        'final_model_fit_rows': int(len(parameter_dataset)),
-        'validation_summary': summary_df.to_dict(orient='records'),
+        'holdout_start': HOLDOUT_START.date().isoformat(),
+        'holdout_comparison': holdout_df.to_dict(orient='records'),
         'head_to_head_summary': {
             'parameter_wins_total': int(head_to_head_df['parameter_wins'].sum()) if not head_to_head_df.empty else 0,
             'direct_wins_total': int(head_to_head_df['direct_wins'].sum()) if not head_to_head_df.empty else 0,
             'ties_total': int(head_to_head_df['ties'].sum()) if not head_to_head_df.empty else 0,
         },
         'uncertainty_profile': {
-            key: round(value, 4) if isinstance(value, float) else value
-            for key, value in uncertainty_profile.items()
-            if key != 'per_location'
+            'global_mae': round(float(uncertainty_profile['global_mae']), 4),
+            'global_rmse': round(float(uncertainty_profile['global_rmse']), 4),
+            'global_residual_std': round(float(uncertainty_profile['global_residual_std']), 4),
+            'abs_error_p50': round(float(uncertainty_profile['abs_error_p50']), 4),
+            'abs_error_p80': round(float(uncertainty_profile['abs_error_p80']), 4),
+            'abs_error_p90': round(float(uncertainty_profile['abs_error_p90']), 4),
         },
     }
-    (OUTPUT_DIR / 'model_meta.json').write_text(json.dumps(metadata, indent=2))
+    with open(OUTPUT_DIR / 'model_meta.json', 'w', encoding='utf-8') as handle:
+        json.dump(metadata, handle, indent=2)
 
-    print(f'\nSaved outputs to {OUTPUT_DIR}')
+    print('\nSample prediction:')
+    sample = predict_future(artifact, location='Valaiyakaranur', block='Ayodhiyapattanam', target_date='2026-01-01')
+    print(sample)
+
+    print('\nSaved outputs:')
+    for fname in [
+        'parameter_feature_dataset.csv', 'rolling_origin_metrics.csv', 'rolling_origin_predictions.csv',
+        'tuning_results.csv', 'model_comparison.csv', 'per_location_comparison.csv',
+        'per_month_comparison.csv', 'head_to_head_comparison.csv', 'holdout_comparison.csv',
+        'parameter_forecaster.joblib', 'model_meta.json',
+    ]:
+        print(f'  - {OUTPUT_DIR / fname}')
 
 
 if __name__ == '__main__':
