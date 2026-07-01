@@ -12,6 +12,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "pandas>=3.0.2",
     "pymannkendall>=1.4.3",
+    "pygam>=0.9.1",
     "python-dotenv>=1.2.2",
     "scikit-learn>=1.8.0",
     "seaborn>=0.13.2",

@@ -22,6 +22,12 @@ from src.forecasting.panel_forecaster import (
     get_feature_columns as get_direct_feature_columns,
     load_monthly_data as load_direct_monthly_data,
 )
+from src.forecasting.temporal_features import (
+    attach_sens_slopes,
+    compute_sens_slopes,
+    get_sens_slope_feature_columns,
+    kalman_fill_monthly_dataset,
+)
 
 OUTPUT_DIR = ROOT / 'src' / 'data' / 'forecasting_parameters'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -106,38 +112,59 @@ def load_parameter_monthly_data() -> pd.DataFrame:
     return df.sort_values(['Block', 'Location', 'Date']).reset_index(drop=True)
 
 
-def build_parameter_feature_dataset(monthly_df: pd.DataFrame) -> pd.DataFrame:
+def build_parameter_feature_dataset(
+    monthly_df: pd.DataFrame,
+    filled_monthly_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     min_year = int(monthly_df['Date'].dt.year.min())
+    lag_source_by_location: dict[tuple[object, object], pd.DataFrame] = {}
+    if filled_monthly_df is not None:
+        for key, source_group in filled_monthly_df.groupby(['Block', 'Location'], sort=False):
+            lag_source_by_location[key] = source_group.sort_values('Date').reset_index(drop=True)
+
     rows: list[dict[str, float | str | pd.Timestamp]] = []
     for (block, location), group in monthly_df.groupby(['Block', 'Location'], sort=False):
         group = group.sort_values('Date').reset_index(drop=True)
         if len(group) < 2:
             continue
+        lag_source = lag_source_by_location.get((block, location), group)
+        lag_source = lag_source.sort_values('Date').reset_index(drop=True)
         for idx in range(1, len(group)):
             current = group.iloc[idx]
-            history = group.iloc[:idx].sort_values('Date', ascending=False).reset_index(drop=True)
+            current_date = pd.Timestamp(current['Date'])
+            observed_history = group.iloc[:idx].sort_values('Date', ascending=False).reset_index(drop=True)
+            lag_history = lag_source[lag_source['Date'] < current_date].sort_values('Date', ascending=False).reset_index(drop=True)
             row: dict[str, float | str | pd.Timestamp] = {
                 'Block': block,
                 'Location': location,
-                'Date': pd.Timestamp(current['Date']),
-                'Year': int(current['Date'].year),
-                'Year_index': int(current['Date'].year - min_year),
-                'Month': int(current['Date'].month),
-                'Month_sin': float(np.sin(2 * np.pi * current['Date'].month / 12)),
-                'Month_cos': float(np.cos(2 * np.pi * current['Date'].month / 12)),
-                'History_points': int(len(history)),
+                'Date': current_date,
+                'Year': int(current_date.year),
+                'Year_index': int(current_date.year - min_year),
+                'Month': int(current_date.month),
+                'Month_sin': float(np.sin(2 * np.pi * current_date.month / 12)),
+                'Month_cos': float(np.cos(2 * np.pi * current_date.month / 12)),
+                'History_points': int(len(observed_history)),
                 TARGET_COL: float(current['WQI_mean']),
             }
             for lag in LAG_STEPS:
-                if lag <= len(history):
-                    previous = history.iloc[lag - 1]
-                    row[f'WQI_lag_{lag}'] = float(previous['WQI_mean'])
+                if lag <= len(lag_history):
+                    previous = lag_history.iloc[lag - 1]
+                    previous_date = pd.Timestamp(previous['Date'])
+                    if filled_monthly_df is not None:
+                        previous_params = {
+                            param: float(previous.get(f'{param}_kalman_filled', previous[param]))
+                            for param in PARAMETER_COLS
+                        }
+                        row[f'WQI_lag_{lag}'] = float(calc_wqi_from_row(pd.Series(previous_params)))
+                    else:
+                        previous_params = {param: float(previous[param]) for param in PARAMETER_COLS}
+                        row[f'WQI_lag_{lag}'] = float(previous['WQI_mean'])
                     row[f'Gap_lag_{lag}_months'] = float(
-                        (current['Date'].year - previous['Date'].year) * 12
-                        + (current['Date'].month - previous['Date'].month)
+                        (current_date.year - previous_date.year) * 12
+                        + (current_date.month - previous_date.month)
                     )
-                    for param in PARAMETER_COLS:
-                        row[f'{param}_lag_{lag}'] = float(previous[param])
+                    for param, value in previous_params.items():
+                        row[f'{param}_lag_{lag}'] = value
                 else:
                     row[f'WQI_lag_{lag}'] = np.nan
                     row[f'Gap_lag_{lag}_months'] = np.nan
@@ -598,21 +625,48 @@ def predict_future(
         'Month_cos': float(np.cos(2 * np.pi * target_timestamp.month / 12)),
         'History_points': int(len(history)),
     }
-    recent = history.sort_values('Date', ascending=False).reset_index(drop=True)
+    filled_history = artifact.get('kalman_filled_history')
+    lag_history = history
+    if isinstance(filled_history, pd.DataFrame) and not filled_history.empty:
+        filled_lag_history = filled_history[
+            (filled_history['Block'] == block)
+            & (filled_history['Location'] == location)
+            & (filled_history['Date'] < target_timestamp)
+        ].copy()
+        if not filled_lag_history.empty:
+            lag_history = filled_lag_history
+
+    recent = lag_history.sort_values('Date', ascending=False).reset_index(drop=True)
     for lag in LAG_STEPS:
         if lag <= len(recent):
             prev = recent.iloc[lag - 1]
-            row[f'WQI_lag_{lag}'] = float(prev['WQI_mean'])
-            row[f'Gap_lag_{lag}_months'] = float((target_timestamp.year - prev['Date'].year) * 12 + (target_timestamp.month - prev['Date'].month))
-            for param in PARAMETER_COLS:
-                row[f'{param}_lag_{lag}'] = float(prev[param])
+            prev_date = pd.Timestamp(prev['Date'])
+            if 'kalman_filled_history' in artifact and isinstance(filled_history, pd.DataFrame) and not filled_history.empty:
+                previous_params = {
+                    param: float(prev.get(f'{param}_kalman_filled', prev[param]))
+                    for param in PARAMETER_COLS
+                }
+                row[f'WQI_lag_{lag}'] = float(calc_wqi_from_row(pd.Series(previous_params)))
+            else:
+                previous_params = {param: float(prev[param]) for param in PARAMETER_COLS}
+                row[f'WQI_lag_{lag}'] = float(prev['WQI_mean'])
+            row[f'Gap_lag_{lag}_months'] = float((target_timestamp.year - prev_date.year) * 12 + (target_timestamp.month - prev_date.month))
+            for param, value in previous_params.items():
+                row[f'{param}_lag_{lag}'] = value
         else:
             row[f'WQI_lag_{lag}'] = np.nan
             row[f'Gap_lag_{lag}_months'] = np.nan
             for param in PARAMETER_COLS:
                 row[f'{param}_lag_{lag}'] = np.nan
 
-    feature_df = pd.DataFrame([row])[artifact['feature_columns']]
+    feature_df = pd.DataFrame([row])
+    slopes_df = artifact.get('sens_slopes')
+    if isinstance(slopes_df, pd.DataFrame) and not slopes_df.empty:
+        feature_df = attach_sens_slopes(feature_df, slopes_df)
+    else:
+        for col in get_sens_slope_feature_columns():
+            feature_df[col] = np.nan
+    feature_df = feature_df[artifact['feature_columns']]
     for col in CATEGORICAL_COLS:
         feature_df[col] = feature_df[col].astype(str)
 
@@ -700,8 +754,11 @@ def main() -> None:
     print('=' * 72)
 
     parameter_monthly = load_parameter_monthly_data()
-    parameter_dataset = build_parameter_feature_dataset(parameter_monthly)
-    feature_cols = get_parameter_feature_columns()
+    slopes_df = compute_sens_slopes(parameter_monthly[parameter_monthly['Date'] < HOLDOUT_START])
+    filled_monthly = kalman_fill_monthly_dataset(parameter_monthly)
+    parameter_dataset = build_parameter_feature_dataset(parameter_monthly, filled_monthly)
+    parameter_dataset = attach_sens_slopes(parameter_dataset, slopes_df)
+    feature_cols = get_parameter_feature_columns() + get_sens_slope_feature_columns()
 
     validation_dataset = parameter_dataset[parameter_dataset['Date'] < HOLDOUT_START].copy()
     holdout_dataset = parameter_dataset[parameter_dataset['Date'] >= HOLDOUT_START].copy()
@@ -762,6 +819,8 @@ def main() -> None:
     ).sort_values(['rmse', 'mae']).reset_index(drop=True)
 
     print(f'Monthly observed rows    : {len(parameter_monthly):,}')
+    print(f"Sen's slope rows        : {len(slopes_df):,}")
+    print(f'Kalman lag-source rows  : {len(filled_monthly):,}')
     print(f'Feature rows            : {len(parameter_dataset):,}')
     print(f'Validation rows         : {len(validation_dataset):,}')
     print(f'Holdout rows            : {len(holdout_dataset):,}')
@@ -776,6 +835,7 @@ def main() -> None:
     print(holdout_df.to_string(index=False))
 
     parameter_dataset.to_csv(OUTPUT_DIR / 'parameter_feature_dataset.csv', index=False)
+    filled_monthly.to_csv(OUTPUT_DIR / 'kalman_filled_monthly_dataset.csv', index=False)
     combined_metrics.to_csv(OUTPUT_DIR / 'rolling_origin_metrics.csv', index=False)
     combined_metrics.to_csv(OUTPUT_DIR / 'validation_metrics.csv', index=False)
     combined_predictions.to_csv(OUTPUT_DIR / 'rolling_origin_predictions.csv', index=False)
@@ -792,6 +852,8 @@ def main() -> None:
         'models': final_models,
         'feature_columns': feature_cols,
         'monthly_history': parameter_monthly,
+        'kalman_filled_history': filled_monthly,
+        'sens_slopes': slopes_df,
         'min_year': int(parameter_monthly['Date'].dt.year.min()),
         'uncertainty_profile': uncertainty_profile,
         'selected_candidate_name': tuned_candidate_name,
@@ -809,6 +871,8 @@ def main() -> None:
             'this artifact should not be presented as a regular monthly per-location forecaster.'
         ),
         'parameter_columns': PARAMETER_COLS,
+        'sens_slope_feature_columns': get_sens_slope_feature_columns(),
+        'kalman_lag_source_rows': int(len(filled_monthly)),
         'validation_dates': [date.date().isoformat() for date in validation_dates],
         'tuning_dates': [date.date().isoformat() for date in tuning_dates],
         'holdout_start': HOLDOUT_START.date().isoformat(),
