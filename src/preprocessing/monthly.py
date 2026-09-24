@@ -9,7 +9,7 @@ load_dotenv()
 
 # Config
 DATA_ROOT   = Path(os.environ["DATA_ROOT"])
-OUTPUT_PATH = Path(os.environ.get("MONTHLY_WQI_PATH", "data/monthly_wqi_dataset.csv"))
+OUTPUT_PATH = Path(os.environ.get("MONTHLY_WQI_PATH"), "monthly_wqi_parameter_dataset.csv")
 OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 SKIP_PREFIXES = ("~", ".", "identifier")

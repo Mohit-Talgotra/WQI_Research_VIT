@@ -16,6 +16,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
+from tqdm.auto import tqdm
 from xgboost import XGBRegressor
 
 load_dotenv()
@@ -27,7 +28,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PARAMETER_ALIASES = {
     'pH_mean': 'ph',
     'TDS_mean': 'tds',
-    'Total_mean': 'hardness',
+    'Hardness_mean': 'hardness',
     'Chloride_mean': 'chloride',
     'Fluoride_mean': 'fluoride',
     'Sulphate_mean': 'sulphate',
@@ -50,7 +51,6 @@ def monthly_data_candidates() -> list[Path]:
         candidates.append(Path(env_path))
     candidates.extend(
         [
-            ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_dataset.csv',
             ROOT / 'src' / 'data' / 'monthly_wqi_dataset.csv',
             ROOT / 'data' / 'monthly_wqi_dataset.csv',
         ]
@@ -66,8 +66,10 @@ def resolve_existing_path(candidates: list[Path]) -> Path:
     checked: list[str] = []
     for candidate in candidates:
         candidate = Path(candidate).expanduser()
+        if candidate.is_dir():
+            candidate = candidate / 'monthly_wqi_dataset.csv'
         checked.append(str(candidate))
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
     raise FileNotFoundError(
         'Could not find a monthly WQI dataset. Checked:\n- ' + '\n- '.join(checked)
@@ -97,6 +99,13 @@ def load_monthly_data() -> pd.DataFrame:
     missing = required.difference(df.columns)
     if missing:
         raise ValueError(f'Monthly dataset is missing required columns: {sorted(missing)}')
+
+    missing_parameter_columns = set(PARAMETER_ALIASES).difference(df.columns)
+    if missing_parameter_columns:
+        raise ValueError(
+            'Monthly dataset is missing parameter columns used for lag features: '
+            f'{sorted(missing_parameter_columns)}'
+        )
 
     if 'n_records' not in df.columns:
         df['n_records'] = np.nan
@@ -368,8 +377,9 @@ def rolling_origin_backtest(
     prediction_rows: list[dict[str, object]] = []
     metric_rows: list[dict[str, object]] = []
 
-    for model_name in model_names:
-        for cutoff_date in backtest_dates:
+    # Each model is evaluated across every eligible rolling-origin cutoff.
+    for model_name in tqdm(model_names, desc='Backtest models', unit='model'):
+        for cutoff_date in tqdm(backtest_dates, desc=f'{model_name} folds', leave=False, unit='fold'):
             train_df = dataset[dataset['Date'] < cutoff_date].copy()
             test_df = dataset[dataset['Date'] == cutoff_date].copy()
             if len(test_df) < MIN_TEST_ROWS or len(train_df) < MIN_TRAIN_ROWS:
@@ -595,11 +605,20 @@ def main() -> None:
     print('WQI PANEL FORECASTER')
     print('=' * 72)
 
+    # Checkpoint 1: load and validate the monthly source data.
+    print('\n[1/8] Loading monthly WQI dataset...')
     monthly_df = load_monthly_data()
+    print(f'      Loaded {len(monthly_df):,} monthly rows.')
+
+    # Checkpoint 2: build one supervised row for each forecastable observation.
+    print('[2/8] Building supervised feature dataset...')
     feature_dataset = build_training_dataset(monthly_df)
     feature_cols = get_feature_columns()
     min_year = int(monthly_df['Date'].dt.year.min())
+    print(f'      Built {len(feature_dataset):,} feature rows and {len(feature_cols)} features.')
 
+    # Checkpoint 3: report the data coverage before model evaluation.
+    print('[3/8] Checking dataset coverage...')
     print(f'Monthly rows            : {len(monthly_df):,}')
     print(f'Locations               : {monthly_df["Location"].nunique()}')
     print(f'Blocks                  : {monthly_df["Block"].nunique()}')
@@ -607,16 +626,23 @@ def main() -> None:
     print(f'Date range              : {feature_dataset["Date"].min().date()} to {feature_dataset["Date"].max().date()}')
     print(f'Holdout starts          : {HOLDOUT_START.date()}')
 
+    # Checkpoint 4: save the materialized training features.
+    print('[4/8] Saving panel feature dataset...')
     feature_dataset.to_csv(OUTPUT_DIR / 'panel_feature_dataset.csv', index=False)
 
     model_names = ['NaiveLastValue', 'RandomForest', 'XGBoost', 'CatBoost']
+    # Checkpoint 5: run rolling-origin backtests with model/fold progress bars.
+    print('[5/8] Running rolling-origin backtests...')
     predictions_df, metrics_df, backtest_dates = rolling_origin_backtest(
         dataset=feature_dataset,
         feature_cols=feature_cols,
         model_names=model_names,
     )
     summary_df = summarize_metrics(metrics_df)
+    print(f'      Completed {len(metrics_df):,} model-fold evaluations.')
 
+    # Checkpoint 6: save backtest predictions and comparison metrics.
+    print('[6/8] Saving backtest results...')
     predictions_df.to_csv(OUTPUT_DIR / 'rolling_origin_predictions.csv', index=False)
     metrics_df.to_csv(OUTPUT_DIR / 'rolling_origin_metrics.csv', index=False)
     summary_df.to_csv(OUTPUT_DIR / 'model_comparison.csv', index=False)
@@ -628,11 +654,15 @@ def main() -> None:
     print('\nModel comparison:')
     print(summary_df.to_string(index=False))
 
+    # Checkpoint 7: fit the best model on all available feature rows.
     best_model_name = str(summary_df.iloc[0]['model'])
+    print(f'[7/8] Fitting final {best_model_name} model...')
     best_model = fit_final_model(feature_dataset, feature_cols, best_model_name)
     save_feature_importance(best_model, feature_cols)
     save_backtest_plot(predictions_df, best_model_name)
 
+    # Checkpoint 8: evaluate the final model and save the reusable artifact.
+    print('[8/8] Evaluating holdout and saving final artifacts...')
     holdout_df, holdout_metrics = evaluate_final_holdout(feature_dataset, feature_cols, best_model_name)
     if holdout_metrics is not None:
         holdout_df.to_csv(OUTPUT_DIR / 'final_holdout_predictions.csv', index=False)

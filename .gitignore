@@ -5,3 +5,5 @@ data_cleaning.ipynb
 **/__pycache__
 **/results
 catboost_info
+venv
+intermediate_results

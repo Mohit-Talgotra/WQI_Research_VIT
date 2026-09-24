@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-PARAMETER_DATASET_PATH = ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_parameter_dataset.csv'
-OUTPUT_DIR = ROOT / 'src' / 'data' / 'constructed_data'
+PARAMETER_DATASET_PATH = ROOT / 'src' / 'data' / 'monthly_wqi_parameter_dataset.csv'
+OUTPUT_DIR = ROOT / 'src' / 'data'
 
 PARAMETER_STANDARDS = {
     'pH_mean': {'Sn': 8.5, 'Videal': 7.0, 'min': 0.0, 'max': 14.0},

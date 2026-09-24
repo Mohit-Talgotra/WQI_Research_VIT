@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from tqdm.auto import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -32,7 +33,7 @@ from src.forecasting.temporal_features import (
 OUTPUT_DIR = ROOT / 'src' / 'data' / 'forecasting_parameters'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-PARAMETER_DATASET_PATH = ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_parameter_dataset.csv'
+PARAMETER_DATASET_PATH = ROOT / 'src' / 'data' / 'monthly_wqi_parameter_dataset.csv'
 LAG_STEPS = (1, 2, 3)
 CATEGORICAL_COLS = ['Block', 'Location']
 TARGET_COL = 'WQI_target'
@@ -198,6 +199,7 @@ def fit_predict_parameter_models(
     test_df: pd.DataFrame,
     feature_cols: list[str],
     model_params: dict[str, object] | None = None,
+    progress_label: str = 'Training parameter models',
 ) -> tuple[pd.DataFrame, dict[str, CatBoostRegressor]]:
     predictions = pd.DataFrame(index=test_df.index)
     models: dict[str, CatBoostRegressor] = {}
@@ -206,7 +208,8 @@ def fit_predict_parameter_models(
     for col in CATEGORICAL_COLS:
         x_train[col] = x_train[col].astype(str)
         x_test[col] = x_test[col].astype(str)
-    for param in PARAMETER_COLS:
+    # Fit one model per water-quality parameter.
+    for param in tqdm(PARAMETER_COLS, desc=progress_label, leave=False, unit='model'):
         model = build_parameter_model(model_params=model_params)
         model.fit(x_train, train_df[f'{param}_target'], cat_features=CATEGORICAL_COLS)
         predictions[param] = model.predict(x_test)
@@ -235,10 +238,17 @@ def evaluate_parameter_model(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     metric_rows: list[dict[str, object]] = []
     prediction_rows: list[dict[str, object]] = []
-    for cutoff_date in backtest_dates:
+    # Each cutoff date represents one rolling-origin evaluation fold.
+    for cutoff_date in tqdm(backtest_dates, desc=f'{model_name} folds', unit='fold'):
         train_df = dataset[dataset['Date'] < cutoff_date].copy()
         test_df = dataset[dataset['Date'] == cutoff_date].copy()
-        pred_params, _ = fit_predict_parameter_models(train_df, test_df, feature_cols, model_params=model_params)
+        pred_params, _ = fit_predict_parameter_models(
+            train_df,
+            test_df,
+            feature_cols,
+            model_params=model_params,
+            progress_label=f'{model_name} models',
+        )
         pred_wqi = pred_params.apply(calc_wqi_from_row, axis=1)
         metric_rows.append(
             {
@@ -329,7 +339,8 @@ def tune_parameter_model(
     best_params = dict(PARAMETER_TUNING_CANDIDATES[0]['params'])
     best_score: tuple[float, float] | None = None
 
-    for candidate in PARAMETER_TUNING_CANDIDATES:
+    # Compare candidate hyperparameter sets using the selected rolling folds.
+    for candidate in tqdm(PARAMETER_TUNING_CANDIDATES, desc='Tuning candidates', unit='candidate'):
         candidate_name = str(candidate['name'])
         candidate_params = dict(candidate['params'])
         metrics_df, _ = evaluate_parameter_model(
@@ -579,7 +590,13 @@ def fit_final_parameter_models(
     feature_cols: list[str],
     model_params: dict[str, object] | None = None,
 ) -> dict[str, CatBoostRegressor]:
-    _, models = fit_predict_parameter_models(dataset, dataset, feature_cols, model_params=model_params)
+    _, models = fit_predict_parameter_models(
+        dataset,
+        dataset,
+        feature_cols,
+        model_params=model_params,
+        progress_label='Final parameter models',
+    )
     return models
 
 
@@ -753,13 +770,30 @@ def main() -> None:
     print('IRREGULAR-TIME PARAMETER WQI PREDICTOR')
     print('=' * 72)
 
+    # Checkpoint 1: load and validate the observed monthly source data.
+    print('\n[1/10] Loading parameter monthly dataset...')
     parameter_monthly = load_parameter_monthly_data()
+    print(f'      Loaded {len(parameter_monthly):,} observed rows.')
+
+    # Checkpoint 2: calculate sensitivity features from the pre-holdout data.
+    print('[2/10] Computing Sen\'s slope features...')
     slopes_df = compute_sens_slopes(parameter_monthly[parameter_monthly['Date'] < HOLDOUT_START])
+    print(f'      Computed {len(slopes_df):,} slope rows.')
+
+    # Checkpoint 3: create the Kalman-filled lag source without changing targets.
+    print('[3/10] Filling lag history with the Kalman filter...')
     filled_monthly = kalman_fill_monthly_dataset(parameter_monthly)
+    print(f'      Prepared {len(filled_monthly):,} lag-source rows.')
+
+    # Checkpoint 4: construct supervised rows and attach sensitivity features.
+    print('[4/10] Building supervised feature dataset...')
     parameter_dataset = build_parameter_feature_dataset(parameter_monthly, filled_monthly)
     parameter_dataset = attach_sens_slopes(parameter_dataset, slopes_df)
     feature_cols = get_parameter_feature_columns() + get_sens_slope_feature_columns()
+    print(f'      Built {len(parameter_dataset):,} feature rows and {len(feature_cols)} features.')
 
+    # Checkpoint 5: split observed rows into validation and untouched holdout data.
+    print('[5/10] Preparing validation and holdout splits...')
     validation_dataset = parameter_dataset[parameter_dataset['Date'] < HOLDOUT_START].copy()
     holdout_dataset = parameter_dataset[parameter_dataset['Date'] >= HOLDOUT_START].copy()
     if holdout_dataset.empty:
@@ -770,15 +804,28 @@ def main() -> None:
             'No validation dates available before the holdout start. '
             'Move FORECAST_HOLDOUT_START later or lower the minimum train/test row settings.'
         )
+    print(
+        f'      Validation: {len(validation_dataset):,} rows across {len(validation_dates)} dates; '
+        f'holdout: {len(holdout_dataset):,} rows.'
+    )
 
+    # Checkpoint 6: select hyperparameters using only validation folds.
+    print('[6/10] Tuning CatBoost hyperparameters...')
     tuned_candidate_name, tuned_model_params, tuning_results_df = tune_parameter_model(
         validation_dataset,
         feature_cols,
         validation_dates,
     )
     tuning_dates = validation_dates[-min(TUNING_BACKTEST_PERIODS, len(validation_dates)) :]
+    print(f'      Selected tuning candidate: {tuned_candidate_name}.')
 
+    # Checkpoint 7: run the direct-WQI comparison baseline.
+    print('[7/10] Evaluating direct-WQI baseline...')
     direct_dataset, direct_metrics, direct_predictions = evaluate_direct_baseline(validation_dates)
+    print(f'      Direct baseline produced {len(direct_predictions):,} predictions.')
+
+    # Checkpoint 8: evaluate parameter models and simple baselines on rolling folds.
+    print('[8/10] Running rolling-origin model evaluation...')
     baseline_metrics, baseline_predictions = evaluate_baselines(parameter_dataset, validation_dates)
     default_parameter_metrics, default_parameter_predictions = evaluate_parameter_model(
         parameter_dataset,
@@ -794,6 +841,7 @@ def main() -> None:
         model_name='ParameterCatBoostTuned',
         model_params=tuned_model_params,
     )
+    print('      Rolling-origin evaluation complete.')
 
     combined_metrics = pd.concat(
         [default_parameter_metrics, tuned_parameter_metrics, direct_metrics, baseline_metrics],
@@ -810,6 +858,8 @@ def main() -> None:
         combined_predictions[combined_predictions['model'].isin(['ParameterCatBoostTuned', 'DirectCatBoost'])]
     )
     uncertainty_profile = build_uncertainty_profile(combined_predictions, model_name='ParameterCatBoostTuned')
+    # Checkpoint 9: evaluate all selected models on the untouched holdout period.
+    print('[9/10] Evaluating the untouched holdout period...')
     holdout_df = evaluate_holdout(
         parameter_dataset,
         feature_cols,
@@ -817,6 +867,7 @@ def main() -> None:
         default_model_params=DEFAULT_PARAMETER_MODEL_PARAMS,
         tuned_model_params=tuned_model_params,
     ).sort_values(['rmse', 'mae']).reset_index(drop=True)
+    print('      Holdout evaluation complete.')
 
     print(f'Monthly observed rows    : {len(parameter_monthly):,}')
     print(f"Sen's slope rows        : {len(slopes_df):,}")
@@ -834,6 +885,8 @@ def main() -> None:
     print('\nUntouched holdout comparison:')
     print(holdout_df.to_string(index=False))
 
+    # Checkpoint 10: write reports, fit final models, and save the artifact.
+    print('[10/10] Saving reports and fitting final models...')
     parameter_dataset.to_csv(OUTPUT_DIR / 'parameter_feature_dataset.csv', index=False)
     filled_monthly.to_csv(OUTPUT_DIR / 'kalman_filled_monthly_dataset.csv', index=False)
     combined_metrics.to_csv(OUTPUT_DIR / 'rolling_origin_metrics.csv', index=False)

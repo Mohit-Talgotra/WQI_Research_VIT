@@ -375,21 +375,7 @@ print(f"  CSVs saved : {OUTPUT_DIR}/")
 
 print("\n" + "=" * 70)
 print("DIAGNOSTIC COMPLETE")
-print("=" * 70)"""
-diagnose_temporal.py
---------------------
-Handles the folder structure:
-    <root>/
-        <Block>/
-            <Year Folder>/
-                <Location>.xlsx   ← sheet index 1 has the data
-
-Run from your project root:
-    python src/preprocessing/diagnose_temporal.py
-
-Add to your .env file:
-    DATA_ROOT="C:/path/to/Water quality data- 5 blocks"
-"""
+print("=" * 70)
 
 import os
 import re

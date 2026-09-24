@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-LINEAR_INTERP_PATH = ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_parameter_interpolated_linear.csv'
-SPLINE_INTERP_PATH = ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_parameter_interpolated_spline.csv'
-ORIGINAL_PATH = ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_parameter_dataset.csv'
+LINEAR_INTERP_PATH = ROOT / 'src' / 'data' / 'monthly_wqi_parameter_interpolated_linear.csv'
+SPLINE_INTERP_PATH = ROOT / 'src' / 'data' / 'monthly_wqi_parameter_interpolated_spline.csv'
+ORIGINAL_PATH = ROOT / 'src' / 'data' / 'monthly_wqi_parameter_dataset.csv'
 
 OUTPUT_DIR = ROOT / 'src' / 'data' / 'analysis'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

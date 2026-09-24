@@ -28,7 +28,7 @@ OUTPUT_DIR = ROOT / 'src' / 'data' / 'forecasting_interpolated'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Load the linear-interpolated parameter dataset we created
-PARAMETER_DATASET_PATH = ROOT / 'src' / 'data' / 'constructed_data' / 'monthly_wqi_parameter_interpolated_linear.csv'
+PARAMETER_DATASET_PATH = ROOT / 'src' / 'data' / 'monthly_wqi_parameter_interpolated_linear.csv'
 HOLDOUT_START = pd.Timestamp('2025-01-01')
 
 LAG_STEPS = (1, 2, 3)
