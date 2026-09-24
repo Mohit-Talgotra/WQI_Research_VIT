@@ -11,3 +11,4 @@ streamlit
 folium
 streamlit_folium
 geopy
+tqdm
