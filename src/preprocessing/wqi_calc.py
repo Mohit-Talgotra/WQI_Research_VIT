@@ -21,10 +21,12 @@ K = 1 / sum([1 / standards[p]["Sn"] for p in standards])
 
 weights = {p: K / standards[p]["Sn"] for p in standards}
 
+SUBINDEX_CAP = float(os.environ.get("WQI_SUBINDEX_CAP", "300.0"))
+
 def calc_qn(param, value, Sn, Videal):
     # Special formula for pH
     qn = ((value - Videal) / (Sn - Videal)) * 100
-    qn = min(qn, 300)
+    qn = min(qn, SUBINDEX_CAP)
 
     return max(qn, 0)
 

@@ -79,12 +79,16 @@ def rmse(y_true: pd.Series | np.ndarray, y_pred: pd.Series | np.ndarray) -> floa
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
+import os
+
+SUBINDEX_CAP = float(os.environ.get("WQI_SUBINDEX_CAP", "300.0"))
+
 def calc_wqi_from_row(row: pd.Series) -> float:
     total = 0.0
     for param, spec in PARAMETER_STANDARDS.items():
         value = float(row[param])
         qn = ((value - spec['Videal']) / (spec['Sn'] - spec['Videal'])) * 100.0
-        total += float(np.clip(qn, 0.0, 300.0)) * WEIGHTS[param]
+        total += float(np.clip(qn, 0.0, SUBINDEX_CAP)) * WEIGHTS[param]
     return total
 
 
@@ -526,7 +530,8 @@ def evaluate_holdout(
     direct_dataset: pd.DataFrame,
     default_model_params: dict[str, object],
     tuned_model_params: dict[str, object],
-) -> pd.DataFrame:
+    parameter_monthly: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     train_param = parameter_dataset[parameter_dataset['Date'] < HOLDOUT_START].copy()
     holdout_param = parameter_dataset[parameter_dataset['Date'] >= HOLDOUT_START].copy()
     default_pred_params, _ = fit_predict_parameter_models(
@@ -549,6 +554,65 @@ def evaluate_holdout(
     direct_predictions = fit_direct_predict('CatBoost', get_direct_feature_columns(), train_direct, holdout_direct)
 
     baseline_predictions = build_baseline_predictions(train_param, holdout_param)
+
+    # Build per-row detail predictions in schema: model,Date,Block,Location,Actual_WQI,Predicted_WQI,Absolute_Error
+    detail_rows: list[dict[str, object]] = []
+
+    def _add_details(model_name: str, frame: pd.DataFrame, actual_col: str, pred_vals: pd.Series | np.ndarray) -> None:
+        preds = pred_vals.values if hasattr(pred_vals, 'values') else np.asarray(pred_vals)
+        for (_, r), p in zip(frame.iterrows(), preds):
+            act = float(r[actual_col])
+            pred_v = float(p)
+            detail_rows.append({
+                'model': model_name,
+                'Date': r['Date'],
+                'Block': r['Block'],
+                'Location': r['Location'],
+                'Actual_WQI': act,
+                'Predicted_WQI': pred_v,
+                'Absolute_Error': abs(act - pred_v),
+            })
+
+    _add_details('ParameterCatBoostDefault', holdout_param, TARGET_COL, default_pred_wqi)
+    _add_details('ParameterCatBoostTuned', holdout_param, TARGET_COL, tuned_pred_wqi)
+    _add_details('DirectCatBoost', holdout_direct, 'WQI_target', direct_predictions)
+    for model_name, values in baseline_predictions.items():
+        _add_details(model_name, holdout_param, TARGET_COL, values)
+
+    detail_df = pd.DataFrame(detail_rows)
+
+    # Persistence baseline stratified by gap length (Concern 3.3)
+    if parameter_monthly is not None and 'Persistence' in baseline_predictions:
+        gap_buckets: list[float] = []
+        for _, row in holdout_param.iterrows():
+            prior_dates = [
+                d for d in parameter_monthly[parameter_monthly['Location'] == row['Location']]['Date']
+                if d < row['Date']
+            ]
+            if prior_dates:
+                last_d = max(prior_dates)
+                gap = (row['Date'].year - last_d.year) * 12 + (row['Date'].month - last_d.month)
+            else:
+                gap = np.nan
+            gap_buckets.append(gap)
+
+        holdout_param_copy = holdout_param.copy()
+        holdout_param_copy['gap_months'] = gap_buckets
+        persistence_pred = baseline_predictions['Persistence']
+        persistence_pred_vals = persistence_pred.values if hasattr(persistence_pred, 'values') else np.asarray(persistence_pred)
+
+        gap_df = pd.DataFrame({
+            'gap_months': holdout_param_copy['gap_months'],
+            'abs_error': np.abs(holdout_param_copy[TARGET_COL].values - persistence_pred_vals),
+        })
+        gap_df['bucket'] = pd.cut(
+            gap_df['gap_months'],
+            bins=[0, 1, 2, 3, 6, 100],
+            labels=['1mo', '2mo', '3mo', '4-6mo', '7mo+'],
+        )
+        gap_summary = gap_df.groupby('bucket', observed=False)['abs_error'].agg(['mean', 'count']).reset_index()
+        gap_summary.to_csv(OUTPUT_DIR / 'persistence_by_gap_length.csv', index=False)
+
     rows = [
         {
             'model': 'ParameterCatBoostDefault',
@@ -582,7 +646,7 @@ def evaluate_holdout(
                 "n_rows": int(len(holdout_param)),
             }
         )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), detail_df
 
 
 def fit_final_parameter_models(
@@ -860,13 +924,15 @@ def main() -> None:
     uncertainty_profile = build_uncertainty_profile(combined_predictions, model_name='ParameterCatBoostTuned')
     # Checkpoint 9: evaluate all selected models on the untouched holdout period.
     print('[9/10] Evaluating the untouched holdout period...')
-    holdout_df = evaluate_holdout(
+    holdout_df, holdout_detail_df = evaluate_holdout(
         parameter_dataset,
         feature_cols,
         direct_dataset,
         default_model_params=DEFAULT_PARAMETER_MODEL_PARAMS,
         tuned_model_params=tuned_model_params,
-    ).sort_values(['rmse', 'mae']).reset_index(drop=True)
+        parameter_monthly=parameter_monthly,
+    )
+    holdout_df = holdout_df.sort_values(['rmse', 'mae']).reset_index(drop=True)
     print('      Holdout evaluation complete.')
 
     print(f'Monthly observed rows    : {len(parameter_monthly):,}')
@@ -899,6 +965,7 @@ def main() -> None:
     per_month_df.to_csv(OUTPUT_DIR / 'per_month_comparison.csv', index=False)
     head_to_head_df.to_csv(OUTPUT_DIR / 'head_to_head_comparison.csv', index=False)
     holdout_df.to_csv(OUTPUT_DIR / 'holdout_comparison.csv', index=False)
+    holdout_detail_df.to_csv(OUTPUT_DIR / 'holdout_predictions_detail.csv', index=False)
 
     final_models = fit_final_parameter_models(parameter_dataset, feature_cols, model_params=tuned_model_params)
     artifact = {

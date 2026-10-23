@@ -1707,6 +1707,7 @@ dependencies = [
     { name = "statsmodels" },
     { name = "streamlit" },
     { name = "streamlit-folium" },
+    { name = "tqdm" },
     { name = "xgboost" },
 ]
 
@@ -1727,6 +1728,7 @@ requires-dist = [
     { name = "statsmodels", specifier = ">=0.14.6" },
     { name = "streamlit", specifier = ">=1.56.0" },
     { name = "streamlit-folium", specifier = ">=0.27.1" },
+    { name = "tqdm", specifier = ">=4.67.0" },
     { name = "xgboost", specifier = ">=3.2.0" },
 ]
 

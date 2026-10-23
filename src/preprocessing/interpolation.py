@@ -26,12 +26,16 @@ PARAMETER_COLS = list(PARAMETER_STANDARDS.keys())
 K = 1.0 / sum(1.0 / spec['Sn'] for spec in PARAMETER_STANDARDS.values())
 WEIGHTS = {name: K / spec['Sn'] for name, spec in PARAMETER_STANDARDS.items()}
 
+import os
+
+SUBINDEX_CAP = float(os.environ.get("WQI_SUBINDEX_CAP", "300.0"))
+
 def calc_wqi_from_row(row: pd.Series) -> float:
     total = 0.0
     for param, spec in PARAMETER_STANDARDS.items():
         value = float(row[param])
         qn = ((value - spec['Videal']) / (spec['Sn'] - spec['Videal'])) * 100.0
-        total += float(np.clip(qn, 0.0, 300.0)) * WEIGHTS[param]
+        total += float(np.clip(qn, 0.0, SUBINDEX_CAP)) * WEIGHTS[param]
     return total
 
 def calculate_decimal_year(dates: pd.Series) -> pd.Series:

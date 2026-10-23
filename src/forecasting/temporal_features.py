@@ -83,7 +83,7 @@ def kalman_fill_location(group: pd.DataFrame, param: str) -> pd.DataFrame:
     Add a Kalman-filled value column for one parameter at one location.
 
     Original observed values are passed through unchanged. Only missing monthly
-    gap rows receive smoothed values. If the state-space model cannot be fit,
+    gap rows receive filtered values. If the state-space model cannot be fit,
     the function falls back to forward/backward fill for the lag source only.
     """
     group = group.sort_values("Date").copy()
@@ -101,7 +101,7 @@ def kalman_fill_location(group: pd.DataFrame, param: str) -> pd.DataFrame:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ConvergenceWarning)
             result = model.fit(disp=False, maxiter=200)
-        smoothed_level = pd.Series(result.smoothed_state[0], index=series.index)
+        smoothed_level = pd.Series(result.filtered_state[0], index=series.index)
         filled_series = series.copy()
         filled_series.loc[~observed_mask] = smoothed_level.loc[~observed_mask]
         group[filled_col] = group["Date"].map(filled_series)

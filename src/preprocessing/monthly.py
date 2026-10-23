@@ -41,9 +41,11 @@ PARAMETER_OUTPUT_NAMES = {
     "Nitrate (as NO3) (mg/l)": "Nitrate_mean",
 }
 
+SUBINDEX_CAP = float(os.environ.get("WQI_SUBINDEX_CAP", "300.0"))
+
 def calc_qn(value: float, Sn: float, Videal: float) -> float:
     qn = ((value - Videal) / (Sn - Videal)) * 100
-    return float(np.clip(qn, 0, 300))
+    return float(np.clip(qn, 0, SUBINDEX_CAP))
 
 def calc_wqi(row: pd.Series) -> float:
     total = 0.0

@@ -109,11 +109,21 @@ def main() -> None:
         
     df_results = pd.DataFrame(results)
     
+    # Save raw full summary
     out_path = OUTPUT_DIR / 'mixed_effects_temporal_summary.csv'
     df_results.to_csv(out_path, index=False)
     
+    # Also save sanitized table that suppresses p-values for non-converged fits
+    sanitized = df_results.copy()
+    non_conv = ~sanitized['Converged']
+    sanitized.loc[non_conv, ['Intercept_coef', 'Intercept_p_val', 'Decimal_Year_slope', 'Decimal_Year_p_val',
+                             'Random_Intercept_var', 'Random_Slope_var', 'Random_Covariance']] = np.nan
+    sanitized_path = OUTPUT_DIR / 'mixed_effects_converged_only.csv'
+    sanitized.to_csv(sanitized_path, index=False)
+
     print("\n" + "=" * 50)
     print(f"Linear Mixed-Effects Analysis Complete. Summary saved to: {out_path}")
+    print(f"Sanitized (converged-only) saved to: {sanitized_path}")
     print("=" * 50)
     print(df_results[['Parameter', 'Decimal_Year_slope', 'Decimal_Year_p_val', 'Converged']].to_string(index=False))
 

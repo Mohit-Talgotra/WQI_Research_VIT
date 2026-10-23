@@ -1,0 +1,456 @@
+gam_forecaster.py
+
+Output:
+(WQI_Research_VIT) PS C:\Mohit\Repositories\WQI_Research_VIT> python -u "c:\Mohit\Repositories\WQI_Research_VIT\src\forecasting\gam_forecaster.py"
+========================================================================
+GAM WQI FORECASTER
+========================================================================
+Monthly observed rows    : 755
+Feature rows            : 656
+Validation rows         : 593
+Holdout rows            : 63
+Validation dates        : ['2024-03-01', '2024-04-01', '2024-05-01', '2024-06-01', '2024-07-01', '2024-08-01','2024-09-01', '2024-10-01', '2024-11-01', '2024-12-01']
+Holdout start           : 2025-01-01
+  [GAM] fold 1/10: 2024-03-01
+  [GAM] fold 2/10: 2024-04-01
+  [GAM] fold 3/10: 2024-05-01
+  [GAM] fold 4/10: 2024-06-01
+  [GAM] fold 5/10: 2024-07-01
+  [GAM] fold 6/10: 2024-08-01
+  [GAM] fold 7/10: 2024-09-01
+  [GAM] fold 8/10: 2024-10-01
+  [GAM] fold 9/10: 2024-11-01
+  [GAM] fold 10/10: 2024-12-01
+
+Validation summary:
+model  mean_rmse  std_rmse  mean_mae   mean_r2  folds
+  GAM  18.362956  9.678158 13.996343 -1.060247     10
+
+Untouched holdout:
+model      rmse       mae        r2  n_rows
+  GAM 14.818175 11.626238 -0.196163      63
+
+Outputs saved to C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_gam
+
+Output Finished
+
+
+
+
+
+trend_analysis.py
+
+
+Output:
+(WQI_Research_VIT) PS C:\Mohit\Repositories\WQI_Research_VIT> python -u "c:\Mohit\Repositories\WQI_Research_VIT\src\analysis\trend_analysis.py"    
+========================================================================
+RUNNING MANN-KENDALL TREND TEST AND SEN'S SLOPE ESTIMATION
+========================================================================
+Analyzing Original dataset...
+Analyzing Linear_Interpolated dataset...
+Analyzing Spline_Interpolated dataset...
+
+Trend analysis complete:
+  Per-location trend summary saved to: C:\Mohit\Repositories\WQI_Research_VIT\src\data\analysis\trend_summary_per_location.csv
+  Global trend summary saved to: C:\Mohit\Repositories\WQI_Research_VIT\src\data\analysis\trend_summary_global.csv
+
+--- SIGNIFICANT GLOBAL TRENDS (Linear Interpolated) ---
+      Parameter      Trend      p_value  sens_slope
+       TDS_mean decreasing 2.220446e-16  -13.797393
+  Hardness_mean decreasing 0.000000e+00   -5.579712
+  Chloride_mean decreasing 0.000000e+00   -2.767192
+  Fluoride_mean decreasing 1.272428e-09   -0.008611
+Alkalinity_mean decreasing 0.000000e+00   -4.709799
+  Sulphate_mean decreasing 8.881784e-16   -1.113650
+   Nitrate_mean decreasing 0.000000e+00   -0.489339
+       WQI_mean decreasing 9.992007e-15   -0.735764
+
+--- SIGNIFICANT GLOBAL TRENDS (Spline Interpolated) ---
+      Parameter      Trend      p_value  sens_slope
+        pH_mean increasing 1.828924e-04    0.002168
+       TDS_mean decreasing 1.776357e-14  -18.298923
+  Hardness_mean decreasing 2.220446e-16   -7.071617
+  Chloride_mean decreasing 1.532108e-14   -3.608543
+  Fluoride_mean decreasing 1.597933e-09   -0.009433
+Alkalinity_mean decreasing 0.000000e+00   -6.132895
+  Sulphate_mean decreasing 7.549517e-15   -1.380643
+   Nitrate_mean decreasing 2.220446e-16   -0.608717
+       WQI_mean decreasing 3.621770e-12   -0.798738
+
+--- LOCATION-LEVEL WQI TREND SUMMARY (Linear Interpolated) ---
+WQI Trend distribution across locations:
+  decreasing: 46 locations
+  increasing: 10 locations
+  no trend: 33 locations
+
+
+Output Finished
+
+
+
+
+
+temporal_mixed_effects.py
+
+
+Output:
+(WQI_Research_VIT) PS C:\Mohit\Repositories\WQI_Research_VIT> python -u "c:\Mohit\Repositories\WQI_Research_VIT\src\analysis\temporal_mixed_effects.py"
+========================================================================
+RUNNING LINEAR MIXED-EFFECTS MODELS FOR TEMPORAL TREND STUDY
+========================================================================
+
+Fitting Linear Mixed-Effects Model for: WQI_mean
+--------------------------------------------------
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with lbfgs
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:1634: UserWarning: Random effects covariance is singular
+  warnings.warn(msg)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with cg
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2206: ConvergenceWarning: MixedLM optimization failed, trying a different optimizer may help.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2218: ConvergenceWarning: Gradient optimization failed, |grad| = 57590.378866
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2237: ConvergenceWarning: The MLE may be on the boundary of the parameter space.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2261: ConvergenceWarning: The Hessian matrix at the estimated parameter values is not positive definite.
+  warnings.warn(msg, ConvergenceWarning)
+                     Mixed Linear Model Regression Results
+===============================================================================
+Model:                    MixedLM        Dependent Variable:        WQI_mean   
+No. Observations:         2305           Method:                    REML       
+No. Groups:               98             Scale:                     314.5981   
+Min. group size:          1              Log-Likelihood:            -10146.3712
+Max. group size:          58             Converged:                 No         
+Mean group size:          23.5                                                 
+-------------------------------------------------------------------------------
+                           Coef.    Std.Err.     z    P>|z|   [0.025    0.975] 
+-------------------------------------------------------------------------------
+Intercept                16738.308   1007.396  16.615 0.000 14763.848 18712.768
+Decimal_Year                -8.239      0.498 -16.551 0.000    -9.215    -7.263
+Group Var                  314.614 161270.936                                  
+Group x Decimal_Year Cov    -0.155     79.702                                  
+Decimal_Year Var             0.001      0.039                                  
+===============================================================================
+
+
+Fitting Linear Mixed-Effects Model for: Fluoride_mean
+--------------------------------------------------
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with lbfgs
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:1634: UserWarning: Random effects covariance is singular
+  warnings.warn(msg)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with cg
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2206: ConvergenceWarning: MixedLM optimization failed, trying a different optimizer may help.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2218: ConvergenceWarning: Gradient optimization failed, |grad| = 30573.032223
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2237: ConvergenceWarning: The MLE may be on the boundary of the parameter space.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2261: ConvergenceWarning: The Hessian matrix at the estimated parameter values is not positive definite.
+  warnings.warn(msg, ConvergenceWarning)
+                 Mixed Linear Model Regression Results
+=======================================================================
+Model:                MixedLM     Dependent Variable:     Fluoride_mean
+No. Observations:     2305        Method:                 REML         
+No. Groups:           98          Scale:                  0.6131       
+Min. group size:      1           Log-Likelihood:         -3026.2593   
+Max. group size:      58          Converged:              No           
+Mean group size:      23.5                                             
+-----------------------------------------------------------------------
+                          Coef.   Std.Err.   z    P>|z|  [0.025  0.975]
+-----------------------------------------------------------------------
+Intercept                269.808    46.712  5.776 0.000 178.254 361.362
+Decimal_Year              -0.133     0.023 -5.760 0.000  -0.178  -0.088
+Group Var                  0.613 23547.662                             
+Group x Decimal_Year Cov  -0.000    11.633                             
+Decimal_Year Var           0.000     0.006                             
+=======================================================================
+
+
+Fitting Linear Mixed-Effects Model for: TDS_mean
+--------------------------------------------------
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with lbfgs
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:1634: UserWarning: Random effects covariance is singular
+  warnings.warn(msg)
+                      Mixed Linear Model Regression Results
+=================================================================================
+Model:                    MixedLM         Dependent Variable:         TDS_mean   
+No. Observations:         2305            Method:                     REML       
+No. Groups:               98              Scale:                      37207.5091 
+Min. group size:          1               Log-Likelihood:             -15483.9388
+Max. group size:          58              Converged:                  Yes        
+Mean group size:          23.5                                                   
+---------------------------------------------------------------------------------
+                           Coef.     Std.Err.    z    P>|z|   [0.025     0.975]  
+---------------------------------------------------------------------------------
+Intercept                310887.234 10911.498  28.492 0.000 289501.091 332273.377
+Decimal_Year               -153.223     5.392 -28.419 0.000   -163.791   -142.656
+Group Var                 37208.760                                              
+Group x Decimal_Year Cov    -18.370                                              
+Decimal_Year Var              0.012                                              
+=================================================================================
+
+
+Fitting Linear Mixed-Effects Model for: Hardness_mean
+--------------------------------------------------
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with lbfgs
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:1634: UserWarning: Random effects covariance is singular
+  warnings.warn(msg)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with cg
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2206: ConvergenceWarning: MixedLM optimization failed, trying a different optimizer may help.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2218: ConvergenceWarning: Gradient optimization failed, |grad| = 97188.338784
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2237: ConvergenceWarning: The MLE may be on the boundary of the parameter space.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2261: ConvergenceWarning: The Hessian matrix at the estimated parameter values is not positive definite.
+  warnings.warn(msg, ConvergenceWarning)
+                      Mixed Linear Model Regression Results
+==================================================================================
+Model:                     MixedLM        Dependent Variable:        Hardness_mean
+No. Observations:          2305           Method:                    REML         
+No. Groups:                98             Scale:                     5618.9255    
+Min. group size:           1              Log-Likelihood:            -13398.0592  
+Max. group size:           58             Converged:                 No           
+Mean group size:           23.5                                                   
+----------------------------------------------------------------------------------
+                           Coef.     Std.Err.     z    P>|z|   [0.025     0.975]  
+----------------------------------------------------------------------------------
+Intercept                125432.188   4242.620  29.565 0.000 117116.806 133747.569
+Decimal_Year                -61.821      2.096 -29.489 0.000    -65.930    -57.712
+Group Var                  5619.153 688268.374                                    
+Group x Decimal_Year Cov     -2.775    340.139                                    
+Decimal_Year Var              0.005      0.168                                    
+==================================================================================
+
+
+Fitting Linear Mixed-Effects Model for: Nitrate_mean
+--------------------------------------------------
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with lbfgs
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:1634: UserWarning: Random effects covariance is singular
+  warnings.warn(msg)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2200: ConvergenceWarning: Retrying MixedLM optimization with cg
+  warnings.warn(
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\base\model.py:607: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  warnings.warn("Maximum Likelihood optimization failed to "
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2206: ConvergenceWarning: MixedLM optimization failed, trying a different optimizer may help.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2218: ConvergenceWarning: Gradient optimization failed, |grad| = 88097.294360
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2237: ConvergenceWarning: The MLE may be on the boundary of the parameter space.
+  warnings.warn(msg, ConvergenceWarning)
+C:\Mohit\Repositories\WQI_Research_VIT\.venv\Lib\site-packages\statsmodels\regression\mixed_linear_model.py:2261: ConvergenceWarning: The Hessian matrix at the estimated parameter values is not positive definite.
+  warnings.warn(msg, ConvergenceWarning)
+                    Mixed Linear Model Regression Results
+==============================================================================
+Model:                    MixedLM       Dependent Variable:       Nitrate_mean
+No. Observations:         2305          Method:                   REML        
+No. Groups:               98            Scale:                    42.1032     
+Min. group size:          1             Log-Likelihood:           -7775.3482  
+Max. group size:          58            Converged:                No          
+Mean group size:          23.5                                                
+------------------------------------------------------------------------------
+                           Coef.    Std.Err.    z    P>|z|   [0.025    0.975] 
+------------------------------------------------------------------------------
+Intercept                10944.017   367.681  29.765 0.000 10223.375 11664.660
+Decimal_Year                -5.398     0.182 -29.710 0.000    -5.754    -5.042
+Group Var                   42.105 63000.073                                  
+Group x Decimal_Year Cov    -0.021    31.136                                  
+Decimal_Year Var             0.000     0.015                                  
+==============================================================================
+
+
+==================================================
+Linear Mixed-Effects Analysis Complete. Summary saved to: C:\Mohit\Repositories\WQI_Research_VIT\src\data\analysis\mixed_effects_temporal_summary.csv
+==================================================
+    Parameter  Decimal_Year_slope  Decimal_Year_p_val  Converged
+     WQI_mean           -8.238918        1.573776e-61      False
+Fluoride_mean           -0.132954        8.416312e-09      False
+     TDS_mean         -153.223248       1.186056e-177       True
+Hardness_mean          -61.820701       3.977153e-191      False
+ Nitrate_mean           -5.397828       5.642675e-194      False
+(WQI_Research_VIT) PS C:\Mohit\Repositories\WQI_Research_VIT> 
+
+
+Output Finished
+
+
+
+
+
+panel_forecaster.py
+
+
+Output:
+========================================================================
+WQI PANEL FORECASTER
+========================================================================
+
+[1/8] Loading monthly WQI dataset...
+      Loaded 755 monthly rows.
+[2/8] Building supervised feature dataset...
+      Built 656 feature rows and 45 features.
+[3/8] Checking dataset coverage...
+Monthly rows            : 755
+Locations               : 98
+Blocks                  : 5
+Feature rows            : 656
+Date range              : 2022-05-01 to 2025-12-01
+Holdout starts          : 2025-01-01
+[4/8] Saving panel feature dataset...
+[5/8] Running rolling-origin backtests...
+Backtest models: 100%|██████████████████████████████████████████████████████| 4/4 [09:39<00:00, 144.89s/model]
+      Completed 40 model-fold evaluations.                                                                    
+[6/8] Saving backtest results...
+
+Backtest months:
+  - 2024-06-01
+  - 2024-07-01
+  - 2024-08-01
+  - 2024-09-01
+  - 2024-10-01
+  - 2024-11-01
+  - 2024-12-01
+  - 2025-01-01
+  - 2025-02-01
+  - 2025-03-01
+
+Model comparison:
+         model  mean_rmse  std_rmse  mean_mae   mean_r2  folds
+      CatBoost  13.622557  2.942052 10.785464 -0.169575     10
+       XGBoost  14.055711  3.942711 11.254740 -0.261313     10
+  RandomForest  14.208389  3.258086 11.290366 -0.278354     10
+NaiveLastValue  19.168558  3.557870 15.597697 -1.358104     10
+[7/8] Fitting final CatBoost model...
+[8/8] Evaluating holdout and saving final artifacts...
+
+Final holdout:
+{
+  "rmse": 15.310330922014918,
+  "mae": 12.447269845922097,
+  "r2": -0.2769391434127868,
+  "n_rows": 63
+}
+
+Sample predictions:
+  - Ammapalayam (Panamarathupatti): 47.59 [Good]
+  - Nilavarapatti (Panamarathupatti): 54.25 [Poor]
+  - Valaiyakaranur (Ayodhiyapattanam): 60.53 [Poor]
+
+Saved outputs:
+  - C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_v2\panel_feature_dataset.csv
+  - C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_v2\rolling_origin_predictions.csv
+  - C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_v2\rolling_origin_metrics.csv
+  - C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_v2\model_comparison.csv
+  - C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_v2\wqi_panel_forecaster.joblib
+  - C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_v2\model_meta.json
+(WQI_Research_VIT) PS C:\Mohit\Repositories\WQI_Research_VIT> 
+
+Output Finished
+
+
+
+
+parameter_forecaster.py
+
+
+Output:
+========================================================================
+IRREGULAR-TIME PARAMETER WQI PREDICTOR
+========================================================================
+
+[1/10] Loading parameter monthly dataset...
+      Loaded 755 observed rows.
+[2/10] Computing Sen's slope features...
+      Computed 98 slope rows.
+[3/10] Filling lag history with the Kalman filter...
+      Prepared 2,305 lag-source rows.
+[4/10] Building supervised feature dataset...
+      Built 656 feature rows and 46 features.
+[5/10] Preparing validation and holdout splits...
+      Validation: 593 rows across 10 dates; holdout: 63 rows.
+[6/10] Tuning CatBoost hyperparameters...
+Tuning::baseline folds: 100%|████████████████████████████████████████████████| 4/4 [18:32<00:00, 278.24s/fold]
+Tuning::shallower_regularized folds: 100%|███████████████████████████████████| 4/4 [08:34<00:00, 128.51s/fold]
+Tuning::balanced_medium folds: 100%|█████████████████████████████████████████| 4/4 [13:31<00:00, 202.77s/fold]
+Tuning::deeper_slow folds: 100%|██████████████████████████████████████████| 4/4 [5:29:57<00:00, 4949.42s/fold]
+Tuning candidates: 100%|█████████████████████████████████████████████| 4/4 [6:10:35<00:00, 5558.94s/candidate]
+      Selected tuning candidate: deeper_slow.                                                                 
+[7/10] Evaluating direct-WQI baseline...
+      Direct baseline produced 252 predictions.
+[8/10] Running rolling-origin model evaluation...
+ParameterCatBoostDefault folds: 100%|██████████████████████████████████████| 10/10 [50:17<00:00, 301.75s/fold]
+ParameterCatBoostTuned folds: 100%|██████████████████████████████████████| 10/10 [1:21:38<00:00, 489.88s/fold]
+      Rolling-origin evaluation complete.                                                                     
+[9/10] Evaluating the untouched holdout period...
+      Holdout evaluation complete.                                                                            
+Monthly observed rows    : 755
+Sen's slope rows        : 98
+Kalman lag-source rows  : 2,305
+Feature rows            : 656
+Validation rows         : 593
+Holdout rows            : 63
+Validation dates        : ['2024-03-01', '2024-04-01', '2024-05-01', '2024-06-01', '2024-07-01', '2024-08-01','2024-09-01', '2024-10-01', '2024-11-01', '2024-12-01']
+Tuning dates            : ['2024-09-01', '2024-10-01', '2024-11-01', '2024-12-01']
+Holdout start           : 2025-01-01
+
+Tuning results:
+       candidate_name  mean_rmse  mean_mae   mean_r2  selected
+          deeper_slow  13.242112 10.207319 -0.047715      True
+             baseline  13.683257 10.488710 -0.126248     False
+      balanced_medium  13.766992 10.599127 -0.134617     False
+shallower_regularized  13.863628 10.616896 -0.144244     False
+
+Validation comparison:
+                   model  mean_rmse  std_rmse  mean_mae   mean_r2  folds
+          DirectCatBoost  16.093515  3.849999 13.063550 -0.395305     10
+            SeasonalMean  16.870904  3.071771 13.846806 -0.560428     10
+  ParameterCatBoostTuned  17.599556 10.869793 12.876223 -1.027489     10
+ParameterCatBoostDefault  17.781955 10.518283 12.752952 -1.029841     10
+             Persistence  19.107084  9.786455 13.029381 -1.258136     10
+            LocationMean  23.745316 10.616126 17.496797 -2.588429     10
+
+Untouched holdout comparison:
+                   model      rmse       mae        r2  n_rows
+             Persistence 12.173554  8.738493  0.192698      63
+ParameterCatBoostDefault 13.136809 10.426591  0.059885      63
+  ParameterCatBoostTuned 13.295848 10.461571  0.036985      63
+          DirectCatBoost 15.310331 12.447270 -0.276939      63
+            SeasonalMean 16.452239 13.830499 -0.474521      63
+            LocationMean 19.702896 16.328989 -1.114760      63
+[10/10] Saving reports and fitting final models...
+                                                                                                              
+Saved outputs to C:\Mohit\Repositories\WQI_Research_VIT\src\data\forecasting_parameters
+(WQI_Research_VIT) PS C:\Mohit\Repositories\WQI_Research_VIT> 
+
+Output Finished
